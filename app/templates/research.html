@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}Product Research - AI Content Factory{% endblock %}
+{% block page_title %}Nghiên Cứu Sản Phẩm (Product Research){% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-magic me-2 text-primary"></i>Tạo Danh Sách Sản Phẩm Tiềm Năng (Gemini AI)
+            </div>
+            <div class="card-body">
+                <!-- Gemini Status Box -->
+                <div id="geminiStatusBox" class="gemini-status-box mb-3">
+                    <div class="gemini-status-header">
+                        <i class="bi bi-stars me-1 text-primary"></i>
+                        <span class="gemini-status-model">{{ gemini_status.model if gemini_status else 'gemini-3.8-flash' }}</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2 mt-1">
+                        <span class="gemini-status-dot" id="researchStatusDot">●</span>
+                        <span class="gemini-status-msg fw-semibold" id="researchStatusMsg">
+                            {{ gemini_status.message if gemini_status else 'Chưa kiểm tra Gemini' }}
+                        </span>
+                    </div>
+                    <div class="gemini-status-hint text-secondary small mt-1" id="researchStatusHint">
+                        {{ gemini_status.hint if gemini_status else '' }}
+                    </div>
+                </div>
+
+                {% if error %}
+                <div class="alert alert-dismissible fade show mb-3
+                    {% if error_type == 'QUOTA_EXCEEDED' %}alert-warning
+                    {% elif error_type in ['AUTH_ERROR', 'NETWORK_ERROR', 'ERROR'] %}alert-danger
+                    {% elif error_type in ['BUSY', 'RATE_LIMITED'] %}alert-warning
+                    {% else %}alert-danger{% endif %}" role="alert">
+                    <div class="d-flex align-items-start gap-2">
+                        <i class="bi
+                            {% if error_type == 'QUOTA_EXCEEDED' %}bi-clock-history text-warning
+                            {% elif error_type == 'BUSY' %}bi-hourglass-split text-warning
+                            {% elif error_type == 'RATE_LIMITED' %}bi-speedometer2 text-warning
+                            {% elif error_type == 'AUTH_ERROR' %}bi-key text-danger
+                            {% elif error_type == 'NETWORK_ERROR' %}bi-wifi-off text-danger
+                            {% else %}bi-exclamation-triangle-fill text-danger{% endif %} mt-1 flex-shrink-0"></i>
+                        <div>
+                            <div class="fw-semibold">
+                                {% if error_type == 'QUOTA_EXCEEDED' %}Đã hết hạn mức Gemini hôm nay
+                                {% elif error_type == 'BUSY' %}Gemini đang quá tải
+                                {% elif error_type == 'RATE_LIMITED' %}Gemini đang bị giới hạn tạm thời
+                                {% elif error_type == 'AUTH_ERROR' %}Lỗi xác thực Gemini
+                                {% elif error_type == 'NETWORK_ERROR' %}Không kết nối được Gemini
+                                {% else %}Lỗi Gemini{% endif %}
+                            </div>
+                            <div class="mt-1">{{ error }}</div>
+                            {% if error_type == 'QUOTA_EXCEEDED' %}
+                            <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Chi tiết kỹ thuật trong <code>logs/app.log</code></div>
+                            {% elif error_type == 'BUSY' %}
+                            <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Hệ thống đã thử lại có giới hạn. Chi tiết trong <code>logs/app.log</code></div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endif %}
+
+                <form id="researchForm" method="POST" action="/research">
+                    <div class="mb-3">
+                        <label for="niche" class="form-label fw-bold">Ngành hàng / Niche:</label>
+                        <input type="text" class="form-control" id="niche" name="niche" value="{{ niche_val or '' }}" placeholder="Ví dụ: Đồ gia dụng thông minh, Đồ chơi công nghệ..." required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="productCount" class="form-label fw-bold">Số lượng sản phẩm:</label>
+                        <select class="form-select" id="productCount" name="product_count">
+                            <option value="5" {% if product_count_val == 5 %}selected{% endif %}>5 sản phẩm</option>
+                            <option value="10" {% if product_count_val == 10 or not product_count_val %}selected{% endif %}>10 sản phẩm</option>
+                            <option value="20" {% if product_count_val == 20 %}selected{% endif %}>20 sản phẩm</option>
+                            <option value="30" {% if product_count_val == 30 %}selected{% endif %}>30 sản phẩm</option>
+                            <option value="50" {% if product_count_val == 50 %}selected{% endif %}>50 sản phẩm</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" id="btnRunResearch">
+                        <i class="bi bi-stars me-1"></i>
+                        <span id="btnRunResearchLabel">RUN RESEARCH (Chạy nghiên cứu)</span>
+                        <span id="btnRunResearchSpinner" class="spinner-border spinner-border-sm ms-2 d-none"></span>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-info-circle me-2 text-info"></i>Hướng Dẫn & Quy Tắc
+            </div>
+            <div class="card-body">
+                <ul class="text-secondary small mb-0">
+                    <li class="mb-2"><strong class="text-white">Gemini AI</strong> tự động phân tích và tạo: Tên tiếng Việt, Tên tiếng Trung chuẩn thương mại, Từ khóa tìm kiếm tự nhiên trên Douyin, Góc nội dung (Content Angle) và Câu giật tít mở đầu (Hook).</li>
+                    <li class="mb-2"><strong class="text-white">Mã sản phẩm</strong> được đánh số tự động dạng: <code class="text-info">P0001</code>, <code class="text-info">P0002</code>...</li>
+                    <li>Sau khi tạo, các sản phẩm sẽ được lưu vào cơ sở dữ liệu SQLite và sẵn sàng cho bước tìm kiếm Douyin.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function() {
+    const STATUS_COLORS = {
+        READY:          '#22c55e',
+        CHECKING:       '#60a5fa',
+        BUSY:           '#f59e0b',
+        RATE_LIMITED:   '#f59e0b',
+        QUOTA_EXCEEDED: '#f97316',
+        AUTH_ERROR:     '#ef4444',
+        NETWORK_ERROR:  '#ef4444',
+        ERROR:          '#ef4444',
+        UNKNOWN:        '#6b7280',
+    };
+
+    // Apply initial status from server render
+    const initialStatus = "{{ gemini_status.status if gemini_status else 'UNKNOWN' }}";
+    const dot = document.getElementById('researchStatusDot');
+    if (dot && STATUS_COLORS[initialStatus]) dot.style.color = STATUS_COLORS[initialStatus];
+
+    // Listen for status updates from the global poller in base.html
+    window.addEventListener('geminiStatusUpdate', function(e) {
+        const d = e.detail;
+        const s = d.status || 'UNKNOWN';
+        const dot2 = document.getElementById('researchStatusDot');
+        const msg = document.getElementById('researchStatusMsg');
+        const hint = document.getElementById('researchStatusHint');
+        if (dot2) dot2.style.color = STATUS_COLORS[s] || '#6b7280';
+        if (msg)  msg.textContent = d.message || s;
+        if (hint) hint.textContent = d.hint || '';
+    });
+
+    // Research form: disable button during submission (prevent double-click)
+    const form = document.getElementById('researchForm');
+    const btn = document.getElementById('btnRunResearch');
+    const btnLabel = document.getElementById('btnRunResearchLabel');
+    const btnSpinner = document.getElementById('btnRunResearchSpinner');
+    const statusMsg = document.getElementById('researchStatusMsg');
+    const statusHint = document.getElementById('researchStatusHint');
+
+    if (form && btn) {
+        form.addEventListener('submit', function(e) {
+            if (btn.disabled) {
+                e.preventDefault();
+                return false;
+            }
+            // Show processing state immediately
+            btn.disabled = true;
+            if (btnLabel) btnLabel.textContent = 'Đang chạy nghiên cứu...';
+            if (btnSpinner) btnSpinner.classList.remove('d-none');
+            if (statusMsg) statusMsg.textContent = 'Gemini đang xử lý...';
+            if (statusHint) statusHint.textContent = 'Đang gửi yêu cầu tới Gemini. Vui lòng đợi.';
+            const dot3 = document.getElementById('researchStatusDot');
+            if (dot3) dot3.style.color = '#60a5fa';
+        });
+    }
+})();
+</script>
+{% endblock %}

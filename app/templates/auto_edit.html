@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+
+{% block title %}Auto Video Editor - AI Content Factory{% endblock %}
+{% block page_title %}Biên Tập Video Tự Động (Phase 12 Auto Editor){% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <p class="text-secondary mb-0">
+            Hệ thống biên tập video tự động cục bộ: làm mờ phụ đề tiếng Trung gốc, tạo lời đọc tiếng Việt khớp nhịp timeline, chuyển thành giọng đọc VieNeu-TTS, chèn phụ đề tiếng Việt và xuất video chuẩn 9:16 (1080x1920) hoàn toàn tự động mà không cần CapCut.
+        </p>
+    </div>
+    <div class="col-md-4 text-md-end">
+        {% if ffmpeg_status.ready %}
+        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">
+            <i class="bi bi-check-circle-fill me-1"></i> FFmpeg & ffprobe Sẵn Sàng
+        </span>
+        {% else %}
+        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i> FFmpeg Chưa Cấu Hình
+        </span>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card border-secondary-subtle mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div>
+                <h5 class="card-title text-white mb-1"><i class="bi bi-layers-half text-primary me-2"></i>Bảng Điều Khiển Batch Auto-Edit</h5>
+                <p class="text-secondary small mb-0">Biên tập hàng loạt video tuần tự, tiết kiệm tài nguyên, độc lập xử lý và có thể Retry lỗi.</p>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="d-flex align-items-center gap-1">
+                    <label class="text-secondary small mb-0"><i class="bi bi-mic me-1"></i>Giọng:</label>
+                    <select class="form-select form-select-sm" id="batchVoiceSelect" style="width: 170px;">
+                        {% for vc in available_voices %}
+                        <option value="{{ vc.id }}" {% if vc.id == 'Trúc Ly' %}selected{% endif %}>{{ vc.id }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="button" class="btn btn-outline-warning" id="btnRetryFailed" onclick="retryFailedBatch()" style="display: none;">
+                    <i class="bi bi-arrow-clockwise me-1"></i> Thử Lại Video Lỗi (Retry)
+                </button>
+                <button type="button" class="btn btn-primary px-3" id="btnStartBatch" onclick="startBatchAutoEdit()">
+                    <i class="bi bi-play-circle-fill me-1"></i> Bắt Đầu Biên Tập (<span id="selectedCount">0</span> đã chọn)
+                </button>
+            </div>
+        </div>
+
+        <!-- Real-time Progress Panel -->
+        <div id="batchProgressPanel" class="mt-4 pt-3 border-top border-secondary-subtle" style="display: none;">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-semibold text-info" id="batchProgressTitle">
+                    <span class="spinner-border spinner-border-sm me-2" role="status" id="batchSpinner"></span>
+                    <span id="batchStatusText">Đang xử lý hàng loạt...</span>
+                </span>
+                <span class="badge bg-secondary" id="batchProgressFraction">0 / 0</span>
+            </div>
+            <div class="progress mb-3" style="height: 10px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" id="batchProgressBar" role="progressbar" style="width: 0%"></div>
+            </div>
+            <div class="d-flex flex-wrap gap-4 small text-secondary">
+                <div><i class="bi bi-check-circle text-success me-1"></i> Thành công: <strong class="text-white" id="statSuccess">0</strong></div>
+                <div><i class="bi bi-x-circle text-danger me-1"></i> Thất bại: <strong class="text-white" id="statFailed">0</strong></div>
+                <div><i class="bi bi-hourglass-split text-warning me-1"></i> Đang chờ/xử lý: <strong class="text-white" id="statPending">0</strong></div>
+                <div><i class="bi bi-clock-history text-info me-1"></i> Thời gian: <strong class="text-white" id="statElapsed">0s</strong></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-secondary-subtle">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-collection-play-fill text-primary me-2"></i>Danh Sách Video Chờ Biên Tập</span>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleSelectAll()">
+                <i class="bi bi-check-all me-1"></i> Chọn / Bỏ chọn tất cả
+            </button>
+            <span class="badge bg-secondary">{{ videos|length }} video</span>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-dark align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 50px;" class="text-center">
+                            <input class="form-check-input" type="checkbox" id="selectAllCheckbox" onchange="handleSelectAllChange(this)">
+                        </th>
+                        <th style="width: 120px;">Video ID</th>
+                        <th>Sản Phẩm</th>
+                        <th style="width: 140px;">Chế Độ</th>
+                        <th style="width: 220px;">Trạng Thái Biên Tập</th>
+                        <th style="width: 160px;">Trạng Thái Video</th>
+                        <th style="width: 160px;" class="text-end">Hành Động</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for v in videos %}
+                    <tr id="row-{{ v.video_id }}">
+                        <td class="text-center">
+                            <input class="form-check-input video-checkbox" type="checkbox" value="{{ v.video_id }}" onchange="updateSelectedCount()">
+                        </td>
+                        <td>
+                            <span class="fw-bold text-info">{{ v.video_id }}</span>
+                        </td>
+                        <td>
+                            <div class="fw-semibold text-white">{{ v.product.name_vietnamese if v.product else 'Chưa gán' }}</div>
+                            <div class="small text-secondary text-truncate" style="max-width: 350px;">
+                                <i class="bi bi-link-45deg"></i> {{ v.douyin_url }}
+                            </div>
+                        </td>
+                        <td>
+                            {% if v.edit_mode == 'CAPCUT_MANUAL' %}
+                            <span class="badge bg-warning-subtle text-warning">CapCut Manual</span>
+                            {% else %}
+                            <span class="badge bg-primary-subtle text-primary">Auto Edit</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if v.auto_edit_status == 'AUTO_EDIT_READY' %}
+                            <span class="badge bg-success"><i class="bi bi-check2 me-1"></i>Đã Render 9:16</span>
+                            {% elif v.auto_edit_status == 'SUBTITLE_REGION_REVIEW_REQUIRED' %}
+                            <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle me-1"></i>Cần Chọn Vùng Sub</span>
+                            {% elif v.auto_edit_status == 'VOICE_READY' %}
+                            <span class="badge bg-info text-dark"><i class="bi bi-mic-fill me-1"></i>Giọng Đọc Sẵn Sàng</span>
+                            {% elif v.auto_edit_status == 'ANALYZED' %}
+                            <span class="badge bg-secondary"><i class="bi bi-check me-1"></i>Đã Phân Tích</span>
+                            {% elif 'ERROR' in (v.auto_edit_status or '') %}
+                            <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>{{ v.auto_edit_status }}</span>
+                            {% else %}
+                            <span class="badge bg-dark border text-secondary">{{ v.auto_edit_status or 'Chưa Bắt Đầu' }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary">{{ v.status }}</span>
+                        </td>
+                        <td class="text-end">
+                            <a href="/auto-edit/{{ v.video_id }}" class="btn btn-sm btn-primary">
+                                <i class="bi bi-sliders me-1"></i> Mở Bàn Biên Tập
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-5 text-secondary">
+                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                            Chưa có video nào sẵn sàng để biên tập. Vui lòng phê duyệt video trong Review Queue trước.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let batchInterval = null;
+
+function updateSelectedCount() {
+    const checked = document.querySelectorAll('.video-checkbox:checked');
+    const count = checked.length;
+    document.getElementById('selectedCount').innerText = count;
+
+    const allCheckboxes = document.querySelectorAll('.video-checkbox');
+    const selectAll = document.getElementById('selectAllCheckbox');
+    if (allCheckboxes.length > 0) {
+        selectAll.checked = (count === allCheckboxes.length);
+        selectAll.indeterminate = (count > 0 && count < allCheckboxes.length);
+    }
+}
+
+function handleSelectAllChange(elem) {
+    const checkboxes = document.querySelectorAll('.video-checkbox');
+    checkboxes.forEach(cb => cb.checked = elem.checked);
+    updateSelectedCount();
+}
+
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAllCheckbox');
+    selectAll.checked = !selectAll.checked;
+    handleSelectAllChange(selectAll);
+}
+
+async function startBatchAutoEdit() {
+    const checked = document.querySelectorAll('.video-checkbox:checked');
+    if (checked.length === 0) {
+        alert('Vui lòng chọn ít nhất 1 video để bắt đầu Batch Auto-Edit.');
+        return;
+    }
+
+    const videoIds = Array.from(checked).map(cb => cb.value);
+    const voiceName = document.getElementById('batchVoiceSelect')?.value || 'Trúc Ly';
+    const btn = document.getElementById('btnStartBatch');
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/auto-edit/batch/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ video_ids: videoIds, voice_name: voiceName })
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('batchProgressPanel').style.display = 'block';
+            startBatchPolling();
+        } else {
+            alert('Lỗi khởi động Batch Auto-Edit: ' + (data.error || 'Lỗi không xác định'));
+            btn.disabled = false;
+        }
+    } catch (err) {
+        alert('Không thể kết nối đến máy chủ: ' + err.message);
+        btn.disabled = false;
+    }
+}
+
+async function retryFailedBatch() {
+    const btn = document.getElementById('btnRetryFailed');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/api/auto-edit/batch/retry-failed', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            startBatchPolling();
+        } else {
+            alert('Lỗi thử lại: ' + (data.error || 'Lỗi không xác định'));
+            btn.disabled = false;
+        }
+    } catch (err) {
+        alert('Lỗi mạng: ' + err.message);
+        btn.disabled = false;
+    }
+}
+
+function startBatchPolling() {
+    if (batchInterval) clearInterval(batchInterval);
+    batchInterval = setInterval(pollBatchStatus, 1500);
+    pollBatchStatus();
+}
+
+async function pollBatchStatus() {
+    try {
+        const res = await fetch('/api/auto-edit/batch/status');
+        const data = await res.json();
+
+        if (!data || data.status === 'IDLE') return;
+
+        const total = data.total || 0;
+        const completed = data.completed || 0;
+        const success = data.success || 0;
+        const failed = data.failed || 0;
+        const pending = total - completed;
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+        document.getElementById('batchProgressPanel').style.display = 'block';
+        document.getElementById('batchProgressFraction').innerText = `${completed} / ${total}`;
+        document.getElementById('batchProgressBar').style.width = `${percent}%`;
+        document.getElementById('statSuccess').innerText = success;
+        document.getElementById('statFailed').innerText = failed;
+        document.getElementById('statPending').innerText = pending;
+        document.getElementById('statElapsed').innerText = `${data.elapsed_seconds || 0}s`;
+
+        // Update rows in table
+        if (data.videos) {
+            for (const [vid, info] of Object.entries(data.videos)) {
+                const row = document.getElementById(`row-${vid}`);
+                if (row) {
+                    const statusCell = row.children[4];
+                    if (info.status === 'QUEUED') {
+                        statusCell.innerHTML = '<span class="badge bg-secondary"><i class="bi bi-hourglass me-1"></i>Đang Chờ...</span>';
+                    } else if (info.status === 'PROCESSING') {
+                        statusCell.innerHTML = '<span class="badge bg-info text-dark"><span class="spinner-border spinner-border-sm me-1"></span>Đang Biên Tập...</span>';
+                    } else if (info.status === 'READY') {
+                        statusCell.innerHTML = '<span class="badge bg-success"><i class="bi bi-check2-circle me-1"></i>Hoàn Tất 9:16</span>';
+                    } else if (info.status === 'FAILED') {
+                        statusCell.innerHTML = `<span class="badge bg-danger" title="${info.error || ''}"><i class="bi bi-x-circle me-1"></i>Lỗi: ${(info.error || '').substring(0, 20)}...</span>`;
+                    }
+                }
+            }
+        }
+
+        // Show/hide Retry button
+        const retryBtn = document.getElementById('btnRetryFailed');
+        if (failed > 0 && data.status === 'COMPLETED') {
+            retryBtn.style.display = 'inline-block';
+            retryBtn.disabled = false;
+        } else {
+            retryBtn.style.display = 'none';
+        }
+
+        if (data.status === 'COMPLETED') {
+            clearInterval(batchInterval);
+            batchInterval = null;
+            document.getElementById('batchSpinner').style.display = 'none';
+            document.getElementById('batchStatusText').innerText = `Batch hoàn tất: ${success} thành công, ${failed} lỗi.`;
+            document.getElementById('btnStartBatch').disabled = false;
+        } else {
+            document.getElementById('batchSpinner').style.display = 'inline-block';
+            document.getElementById('batchStatusText').innerText = `Đang xử lý: ${completed}/${total} video (${percent}%)...`;
+        }
+    } catch (err) {
+        console.error('Polling error:', err);
+    }
+}
+
+// Auto poll on page load if batch is already running
+document.addEventListener('DOMContentLoaded', () => {
+    updateSelectedCount();
+    fetch('/api/auto-edit/batch/status')
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.status === 'RUNNING') {
+                startBatchPolling();
+            }
+        }).catch(() => {});
+});
+</script>
+{% endblock %}

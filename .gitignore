@@ -1,0 +1,63 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+.venv_vieneu/
+.venv_vieneu_new/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# SQLite databases & runtime data
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+*.db
+*.sqlite
+*.sqlite3
+
+# Runtime directories and artifacts
+downloads/
+logs/
+temp/
+test_outputs/
+scratch/
+
+# Media & Audio/Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+*.webm
+*.wav
+*.mp3
+*.aac
+*.m4a
+*.part
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+.AppleDouble
+.LSOverride

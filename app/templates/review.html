@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block title %}Review Queue - AI Content Factory{% endblock %}
+{% block page_title %}Hàng Đợi Duyệt Video (Review Queue){% endblock %}
+
+{% block content %}
+<!-- Manual Import Panel -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-plus-circle-fill me-2 text-primary"></i>Thêm Video Thủ Công (Manual Import)</span>
+                <span class="small text-secondary">Hỗ trợ dán link Douyin có hoặc không kèm lượt xem</span>
+            </div>
+            <div class="card-body">
+                {% if message %}
+                <div class="alert alert-success alert-dismissible fade show" role="alert">
+                    <i class="bi bi-check-circle-fill me-2"></i> {{ message }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endif %}
+                {% if error %}
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i> {{ error }}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endif %}
+
+                <form method="POST" action="/videos/manual-import" class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-bold">Sản phẩm liên kết:</label>
+                        <select class="form-select" name="product_id">
+                            <option value="">-- Chọn sản phẩm (Tùy chọn) --</option>
+                            {% for p in products %}
+                            <option value="{{ p.product_id }}">{{ p.product_id }} - {{ p.name_vietnamese }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label small fw-bold">Douyin URL <span class="text-danger">*</span>:</label>
+                        <input type="text" class="form-control" name="douyin_url" placeholder="https://v.douyin.com/... hoặc dán toàn bộ văn bản chia sẻ" required>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label small fw-bold">Lượt xem (tùy chọn):</label>
+                        <input type="text" class="form-control" name="views" placeholder="Ví dụ: 125000">
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-primary w-100 fw-bold">
+                            <i class="bi bi-plus-lg me-1"></i> ADD VIDEO
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Review Queue Table -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="fw-bold"><i class="bi bi-filter-square me-2 text-warning"></i>Video Chờ Duyệt (FOUND: {{ videos|length }})</span>
+                    <div class="btn-group btn-group-sm">
+                        <a href="/review" class="btn {% if sort != 'views' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Mới nhất</a>
+                        <a href="/review?sort=views" class="btn {% if sort == 'views' %}btn-secondary{% else %}btn-outline-secondary{% endif %}">Lượt xem cao → thấp</a>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-success" id="btnApproveSelected">
+                    <i class="bi bi-check2-all me-1"></i> APPROVE SELECTED (Duyệt các mục đã chọn)
+                </button>
+            </div>
+            <div class="card-body p-0">
+                {% if videos %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 40px;"><input type="checkbox" id="selectAll"></th>
+                                <th>Thumbnail</th>
+                                <th>Video ID</th>
+                                <th>Sản Phẩm</th>
+                                <th>Lượt Xem</th>
+                                <th>Douyin URL</th>
+                                <th>Thao Tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for v in videos %}
+                            <tr id="row-{{ v.video_id }}">
+                                <td><input type="checkbox" class="video-select-checkbox" value="{{ v.video_id }}"></td>
+                                <td>
+                                    {% if v.thumbnail %}
+                                    <img src="{{ v.thumbnail }}" alt="thumb" class="rounded" style="width: 50px; height: 50px; object-fit: cover;">
+                                    {% else %}
+                                    <div class="bg-secondary-subtle rounded d-flex align-items-center justify-content-center text-secondary" style="width: 50px; height: 50px;">
+                                        <i class="bi bi-film fs-5"></i>
+                                    </div>
+                                    {% endif %}
+                                </td>
+                                <td class="fw-bold text-white">{{ v.video_id }}</td>
+                                <td>{{ v.product.name_vietnamese if v.product else '-' }}</td>
+                                <td>{{ v.views or '-' }}</td>
+                                <td>
+                                    <a href="{{ v.douyin_url }}" target="_blank" class="text-truncate d-inline-block text-decoration-none" style="max-width: 250px;">
+                                        {{ v.douyin_url }}
+                                    </a>
+                                </td>
+                                <td>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ v.douyin_url }}" target="_blank" class="btn btn-outline-secondary" title="Mở URL">
+                                            <i class="bi bi-box-arrow-up-right"></i>
+                                        </a>
+                                        <button class="btn btn-outline-success btn-approve-single" data-id="{{ v.video_id }}" title="Duyệt video">
+                                            <i class="bi bi-check-lg"></i> Approve
+                                        </button>
+                                        <button class="btn btn-outline-danger btn-reject-single" data-id="{{ v.video_id }}" title="Từ chối">
+                                            <i class="bi bi-x-lg"></i> Reject
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-5 text-center text-secondary">
+                    <i class="bi bi-check-circle fs-1 text-success d-block mb-3"></i>
+                    Không có video nào chờ duyệt. Thêm video mới bằng khung bên trên!
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    // Select all checkbox
+    document.getElementById('selectAll')?.addEventListener('change', function() {
+        document.querySelectorAll('.video-select-checkbox').forEach(cb => cb.checked = this.checked);
+    });
+
+    // Single approve
+    document.querySelectorAll('.btn-approve-single').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const vid = this.dataset.id;
+            try {
+                const res = await fetch('/api/videos/approve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({video_id: vid})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const row = document.getElementById(`row-${vid}`);
+                    if (row) row.remove();
+                } else {
+                    alert('Lỗi: ' + data.error);
+                }
+            } catch (e) {
+                alert('Lỗi kết nối: ' + e.message);
+            }
+        });
+    });
+
+    // Single reject
+    document.querySelectorAll('.btn-reject-single').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const vid = this.dataset.id;
+            try {
+                const res = await fetch('/api/videos/reject', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({video_id: vid})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const row = document.getElementById(`row-${vid}`);
+                    if (row) row.remove();
+                } else {
+                    alert('Lỗi: ' + data.error);
+                }
+            } catch (e) {
+                alert('Lỗi kết nối: ' + e.message);
+            }
+        });
+    });
+
+    // Bulk approve
+    document.getElementById('btnApproveSelected')?.addEventListener('click', async function() {
+        const checkedBoxes = document.querySelectorAll('.video-select-checkbox:checked');
+        const ids = Array.from(checkedBoxes).map(cb => cb.value);
+        if (ids.length === 0) {
+            alert('Vui lòng chọn ít nhất một video để duyệt.');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/videos/bulk-approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({video_ids: ids})
+            });
+            const data = await res.json();
+            if (data.success) {
+                ids.forEach(vid => {
+                    const row = document.getElementById(`row-${vid}`);
+                    if (row) row.remove();
+                });
+            } else {
+                alert('Lỗi: ' + data.error);
+            }
+        } catch (e) {
+            alert('Lỗi kết nối: ' + e.message);
+        }
+    });
+</script>
+{% endblock %}

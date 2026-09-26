@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Voice Management - AI Content Factory{% endblock %}
+{% block page_title %}Quản Lý Giọng Đọc (VieNeu-TTS){% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-mic-fill me-2 text-primary"></i>Danh Sách Kịch Bản & Voice-over</span>
+    </div>
+    <div class="card-body p-0">
+        {% if voices %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Video ID</th>
+                        <th>Engine</th>
+                        <th>Giọng Đọc</th>
+                        <th>Trích Đoạn Script</th>
+                        <th>File Âm Thanh</th>
+                        <th>Trạng Thái</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for voice in voices %}
+                    <tr>
+                        <td class="fw-bold text-white">{{ voice.video_id }}</td>
+                        <td>{{ voice.tts_engine }}</td>
+                        <td>{{ voice.voice_name }}</td>
+                        <td class="small text-truncate" style="max-width: 250px;">{{ voice.script }}</td>
+                        <td>
+                            {% if voice.audio_file %}
+                            <audio controls class="w-100" style="max-width: 200px; height: 32px;">
+                                <source src="/downloads/{{ voice.audio_file }}" type="audio/wav">
+                            </audio>
+                            {% else %}
+                            <span class="text-secondary">-</span>
+                            {% endif %}
+                        </td>
+                        <td><span class="badge badge-status status-{{ voice.status }}">{{ voice.status }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-5 text-center text-secondary">
+            <i class="bi bi-mic fs-1 d-block mb-3"></i>
+            Chưa có voice-over nào được tạo.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

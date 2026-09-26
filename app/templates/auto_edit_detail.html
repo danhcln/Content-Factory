@@ -1,0 +1,896 @@
+{% extends "base.html" %}
+
+{% block title %}Biên Tập {{ video.video_id }} - AI Content Factory{% endblock %}
+{% block page_title %}Bàn Biên Tập Video: {{ video.video_id }}{% endblock %}
+
+{% block extra_head %}
+<style>
+    .preview-container {
+        position: relative;
+        width: 100%;
+        max-width: 360px;
+        margin: 0 auto;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #0b0f19;
+        box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+        aspect-ratio: 9 / 16;
+    }
+    .preview-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+    .sub-box-overlay {
+        position: absolute;
+        border: 2px dashed #00e5ff;
+        background: rgba(0, 229, 255, 0.22);
+        pointer-events: none;
+        transition: all 0.2s ease;
+        z-index: 5;
+    }
+    .sub-box-label {
+        position: absolute;
+        top: -22px;
+        left: 0;
+        background: #00e5ff;
+        color: #000;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 1px 6px;
+        border-radius: 3px;
+        white-space: nowrap;
+    }
+    /* Live Subtitle CSS Overlay */
+    .live-sub-overlay {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 14%;
+        width: 90%;
+        text-align: center;
+        color: #ffffff;
+        font-family: 'Arial', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        line-height: 1.35;
+        pointer-events: none;
+        z-index: 10;
+        text-shadow: 0 0 2px #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+        transition: all 0.2s ease;
+        padding: 2px 8px;
+    }
+    .live-sub-overlay.anim-fade {
+        animation: subFadeAnim 0.4s ease;
+    }
+    @keyframes subFadeAnim {
+        from { opacity: 0.3; transform: translateX(-50%) translateY(2px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .timeline-row {
+        transition: background 0.15s;
+    }
+    .timeline-row:hover {
+        background: rgba(255,255,255,0.05);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom border-secondary-subtle">
+    <div>
+        <h4 class="mb-1 text-white fw-bold">
+            <span class="text-primary">{{ video.video_id }}</span>: {{ product.name_vietnamese if product else 'Sản phẩm' }}
+        </h4>
+        <div class="text-secondary small">
+            Thời lượng: <strong class="text-white">{{ plan.duration or 'Chưa đo' }}s</strong> | 
+            Chế độ: 
+            {% if video.edit_mode == 'CAPCUT_MANUAL' %}
+            <span class="badge bg-warning text-dark">CapCut Manual</span>
+            {% else %}
+            <span class="badge bg-primary">Auto Edit (Phase 12-13)</span>
+            {% endif %}
+            | Trạng thái: <span class="badge bg-secondary" id="lblAutoStatus">{{ video.auto_edit_status or 'PENDING' }}</span>
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-warning btn-sm" id="btnSwitchCapcut">
+            <i class="bi bi-box-arrow-up-right me-1"></i> Dùng CapCut Thủ Công
+        </button>
+        <a href="/auto-edit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> Quay lại
+        </a>
+    </div>
+</div>
+
+<div id="alertBox"></div>
+
+<div class="row g-4">
+    <!-- Left Column: Visual Preview Canvas & Subtitle Masking -->
+    <div class="col-lg-5">
+        <div class="card border-secondary-subtle mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-camera-video text-info me-2"></i>Khung Xem Trước Trực Quan 9:16</span>
+                <button class="btn btn-sm btn-outline-info" id="btnAnalyze">
+                    <i class="bi bi-search me-1"></i> Trích Khung Hình
+                </button>
+            </div>
+            <div class="card-body text-center">
+                <!-- Preview Canvas Box -->
+                <div class="preview-container mb-3" id="previewContainer">
+                    <img src="/temp/{{ video.video_id }}/frame_preview.jpg?t={{ now }}" 
+                         alt="Frame Preview" class="preview-image" id="previewImg"
+                         onerror="this.src='https://placehold.co/1080x1920/111827/ffffff?text=Chua+co+preview';">
+                    <!-- 1. Mask overlay for Chinese Subtitles -->
+                    <div class="sub-box-overlay" id="subOverlay">
+                        <span class="sub-box-label"><i class="bi bi-shield-slash me-1"></i>Vùng che sub Trung</span>
+                    </div>
+                    <!-- 2. Live Subtitle Preview Overlay for Vietnamese Subtitles -->
+                    <div class="live-sub-overlay" id="liveSubPreview">
+                        Hôm nay giá đang có ưu đãi
+                    </div>
+                </div>
+
+                <!-- Preview Controls Bar -->
+                <div class="d-flex justify-content-center gap-2 mb-3">
+                    <button class="btn btn-sm btn-outline-primary" id="btnPreviewSubRender">
+                        <i class="bi bi-file-earmark-play me-1"></i> Render Thử Khung Hình (FFmpeg)
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="reloadLiveFrame()">
+                        <i class="bi bi-arrow-repeat me-1"></i> Khung Gốc
+                    </button>
+                </div>
+
+                <!-- Independent Chinese Subtitle Region -->
+                <div class="accordion border border-secondary-subtle rounded text-start" id="maskAccordion">
+                    <div class="accordion-item bg-dark border-0">
+                        <h2 class="accordion-header" id="headingMask">
+                            <button class="accordion-button collapsed bg-dark text-white p-2 small" type="button" data-bs-toggle="collapse" data-bs-target="#collapseMask" aria-expanded="false" aria-controls="collapseMask">
+                                <i class="bi bi-shield-shaded text-warning me-2"></i><strong>Vùng Che Phụ Đề Tiếng Trung Gốc</strong> (Độc Lập)
+                            </button>
+                        </h2>
+                        <div id="collapseMask" class="accordion-collapse collapse" aria-labelledby="headingMask" data-bs-parent="#maskAccordion">
+                            <div class="accordion-body p-2 border-top border-secondary-subtle">
+                                <div class="d-flex justify-content-between gap-1 mb-2">
+                                    <button class="btn btn-xs btn-outline-secondary py-1 px-2" onclick="applyPreset('BOTTOM')">Đáy (Bottom)</button>
+                                    <button class="btn btn-xs btn-outline-secondary py-1 px-2" onclick="applyPreset('LOWER-MIDDLE')">Dưới-Giữa</button>
+                                    <button class="btn btn-xs btn-outline-secondary py-1 px-2" onclick="applyPreset('MIDDLE')">Giữa</button>
+                                    <button class="btn btn-xs btn-outline-primary py-1 px-2" id="btnAutoDetect">
+                                        <i class="bi bi-magic me-1"></i> Tự Quét
+                                    </button>
+                                </div>
+                                <div class="row g-2 mb-2 small">
+                                    <div class="col-3">
+                                        <label class="form-label text-secondary mb-0" style="font-size: 11px;">Tọa độ X:</label>
+                                        <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm" id="inpX" value="{{ sub_region.x or 0.05 }}">
+                                    </div>
+                                    <div class="col-3">
+                                        <label class="form-label text-secondary mb-0" style="font-size: 11px;">Tọa độ Y:</label>
+                                        <input type="number" step="0.01" min="0" max="1" class="form-control form-control-sm" id="inpY" value="{{ sub_region.y or 0.72 }}">
+                                    </div>
+                                    <div class="col-3">
+                                        <label class="form-label text-secondary mb-0" style="font-size: 11px;">Rộng:</label>
+                                        <input type="number" step="0.01" min="0.05" max="1" class="form-control form-control-sm" id="inpW" value="{{ sub_region.width or 0.90 }}">
+                                    </div>
+                                    <div class="col-3">
+                                        <label class="form-label text-secondary mb-0" style="font-size: 11px;">Cao:</label>
+                                        <input type="number" step="0.01" min="0.02" max="1" class="form-control form-control-sm" id="inpH" value="{{ sub_region.height or 0.20 }}">
+                                    </div>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div class="form-check form-check-inline mb-0">
+                                        <input class="form-check-input" type="radio" name="coverType" id="optBlur" value="blur" checked>
+                                        <label class="form-check-label small" for="optBlur">Làm mờ (Blur)</label>
+                                    </div>
+                                    <div class="form-check form-check-inline mb-0">
+                                        <input class="form-check-input" type="radio" name="coverType" id="optCover" value="cover">
+                                        <label class="form-check-label small" for="optCover">Hộp che (Cover)</label>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <span class="text-secondary small">Độ mờ:</span>
+                                        <input type="number" min="5" max="30" value="10" id="rngStrength" class="form-control form-control-sm py-0 px-1" style="width: 50px;">
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-outline-success w-100" id="btnSaveRegion">
+                                    <i class="bi bi-check-circle me-1"></i> Cập Nhật Vùng Che Phụ Đề
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Phase 13 Subtitle & Voice Customization Section -->
+        <div class="card border-secondary-subtle mb-4">
+            <div class="card-header bg-dark d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-badge-cc text-success me-2"></i><strong>Tùy Chỉnh Phụ Đề & Giọng Đọc (Phase 13)</strong></span>
+                <span class="badge bg-success-subtle text-success border border-success-subtle">Mobile 9:16</span>
+            </div>
+            <div class="card-body">
+                <!-- 1. Voice Selector -->
+                <div class="mb-3 p-2 bg-dark rounded border border-secondary-subtle">
+                    <label class="form-label text-warning small fw-semibold mb-1 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-mic-fill me-1"></i>Giọng Đọc VieNeu-TTS:</span>
+                        <button type="button" class="btn btn-xs btn-outline-warning py-0 px-2" id="btnPreviewVoice">
+                            <i class="bi bi-volume-up me-1"></i>Nghe Thử Giọng
+                        </button>
+                    </label>
+                    <select class="form-select form-select-sm" id="selVoiceName">
+                        {% for vc in available_voices %}
+                        <option value="{{ vc.id }}" {% if vc.id == current_voice %}selected{% endif %}>{{ vc.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <audio id="voiceAudioPlayer" class="w-100 mt-2" controls style="display: none; height: 32px;"></audio>
+                </div>
+
+                <!-- 2. Subtitle Styling Controls -->
+                <div class="row g-2 mb-2">
+                    <div class="col-7">
+                        <label class="form-label text-secondary small mb-1">Phông chữ (Font):</label>
+                        <select class="form-select form-select-sm" id="subFont">
+                            {% for f in verified_fonts %}
+                            <option value="{{ f.id }}" {% if f.id == (sub_settings.font or 'Arial Bold') %}selected{% endif %}>{{ f.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-5">
+                        <label class="form-label text-secondary small mb-1">Cỡ chữ (Size):</label>
+                        <select class="form-select form-select-sm" id="subSize">
+                            <option value="small" {% if sub_settings.size == 'small' %}selected{% endif %}>Nhỏ (34px)</option>
+                            <option value="medium" {% if sub_settings.size == 'medium' or not sub_settings.size %}selected{% endif %}>Vừa (40px Chuẩn)</option>
+                            <option value="large" {% if sub_settings.size == 'large' %}selected{% endif %}>Lớn (48px)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2 align-items-center">
+                    <div class="col-6">
+                        <label class="form-label text-secondary small mb-1">Màu chữ (Text):</label>
+                        <div class="input-group input-group-sm">
+                            <input type="color" class="form-control form-control-color" id="subColor" value="{{ sub_settings.color or '#FFFFFF' }}" title="Chọn màu chữ">
+                            <input type="text" class="form-control text-uppercase" id="subColorHex" value="{{ sub_settings.color or '#FFFFFF' }}" maxlength="7">
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label text-secondary small mb-1">Màu viền (Outline):</label>
+                        <div class="input-group input-group-sm">
+                            <input type="color" class="form-control form-control-color" id="subOutlineColor" value="{{ sub_settings.outline_color or '#000000' }}" title="Chọn màu viền">
+                            <input type="text" class="form-control text-uppercase" id="subOutlineHex" value="{{ sub_settings.outline_color or '#000000' }}" maxlength="7">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label text-secondary small mb-1">Độ dày viền: <span id="lblOutlineW">{{ sub_settings.outline_width or 2.2 }}</span></label>
+                        <input type="range" class="form-range" min="1.0" max="4.0" step="0.2" value="{{ sub_settings.outline_width or 2.2 }}" id="subOutlineWidth">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label text-secondary small mb-1">Vị trí phụ đề:</label>
+                        <select class="form-select form-select-sm" id="subPosition">
+                            <option value="bottom" {% if sub_settings.position == 'bottom' or not sub_settings.position %}selected{% endif %}>Dưới đáy (~85%)</option>
+                            <option value="lower_center" {% if sub_settings.position == 'lower_center' %}selected{% endif %}>Dưới-giữa (~80%)</option>
+                            <option value="center" {% if sub_settings.position == 'center' %}selected{% endif %}>Chính giữa (~54%)</option>
+                            <option value="custom" {% if sub_settings.position == 'custom' %}selected{% endif %}>Tùy chỉnh (Custom Y)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3" id="customPosGroup" style="display: {% if sub_settings.position == 'custom' %}flex{% else %}none{% endif %};">
+                    <div class="col-12">
+                        <label class="form-label text-secondary small mb-1">Tọa độ dọc Y (Vùng an toàn 0.78 - 0.88): <span id="lblCustomY">{{ sub_settings.custom_y or 0.84 }}</span></label>
+                        <input type="range" class="form-range" min="0.30" max="0.94" step="0.01" value="{{ sub_settings.custom_y or 0.84 }}" id="subCustomY">
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-secondary small mb-1">Hiệu ứng xuất hiện (Animation):</label>
+                    <select class="form-select form-select-sm" id="subAnimation">
+                        <option value="fade" {% if sub_settings.animation == 'fade' or not sub_settings.animation %}selected{% endif %}>Mờ dần từng câu ngắn (Fade / Smooth)</option>
+                        <option value="karaoke" {% if sub_settings.animation == 'karaoke' %}selected{% endif %}>Karaoke (Nổi bật từng từ)</option>
+                        <option value="none" {% if sub_settings.animation == 'none' %}selected{% endif %}>Tĩnh (Không hiệu ứng)</option>
+                    </select>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-info flex-grow-1" id="btnSaveSubSettings">
+                        <i class="bi bi-bookmark-check me-1"></i> Lưu Cài Đặt Mặc Định
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="btnResetSubSettings" title="Khôi phục mặc định">
+                        <i class="bi bi-arrow-counterclockwise"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column: Timeline, Narration & Auto Pipeline Stages -->
+    <div class="col-lg-7">
+        <!-- Control Actions Panel -->
+        <div class="card border-secondary-subtle mb-4">
+            <div class="card-header bg-dark d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-lightning-charge-fill text-warning me-2"></i><strong>Quy Trình Biên Tập Tự Động (Pipeline Stages)</strong></span>
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <button class="btn btn-outline-info btn-sm" id="btnGenScript">
+                        <i class="bi bi-file-earmark-text me-1"></i> 1. Kịch Bản Khớp Nhịp (Gemini)
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" id="btnGenVoice">
+                        <i class="bi bi-mic me-1"></i> 2. Giọng Đọc & Đồng Bộ (VieNeu)
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="btnGenSubtitles">
+                        <i class="bi bi-badge-cc me-1"></i> 3. Tạo Phụ Đề ASS / SRT
+                    </button>
+                    <button class="btn btn-success btn-sm px-3 ms-auto" id="btnRenderVideo">
+                        <i class="bi bi-film me-1"></i> 4. XUẤT BẢN 9:16 (RENDER)
+                    </button>
+                </div>
+
+                <!-- Render Settings Bar -->
+                <div class="row g-3 p-2 bg-dark rounded border border-secondary-subtle small align-items-center">
+                    <div class="col-md-4">
+                        <label class="form-label text-secondary mb-1">Âm thanh gốc:</label>
+                        <select class="form-select form-select-sm" id="selSourceAudio">
+                            <option value="low" selected>Nhỏ nhẹ nền (15% Vol)</option>
+                            <option value="off">Tắt tiếng gốc (Muted)</option>
+                            <option value="keep">Giữ rõ (40% Vol)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check mt-3">
+                            <input class="form-check-input" type="checkbox" id="chkSubtitles" checked>
+                            <label class="form-check-label" for="chkSubtitles">Bật phụ đề tiếng Việt</label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check mt-3">
+                            <input class="form-check-input" type="checkbox" id="chkHook" checked>
+                            <label class="form-check-label" for="chkHook">Bật câu Hook mở đầu</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timeline Segments Table -->
+        <div class="card border-secondary-subtle">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-clock-history text-primary me-2"></i>Dòng Thời Gian Phân Đoạn (Timeline Narration)</span>
+                <span class="badge bg-secondary" id="lblSegCount">{{ plan.segments|length }} phân đoạn</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive" style="max-height: 520px; overflow-y: auto;">
+                    <table class="table table-dark table-hover align-middle mb-0 small">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th style="width: 110px;">Thời gian</th>
+                                <th style="width: 70px;">Thời lượng</th>
+                                <th>Lời Thoại Tiếng Việt</th>
+                                <th style="width: 80px;">Tốc độ</th>
+                                <th style="width: 90px;">Trạng thái</th>
+                            </tr>
+                        </thead>
+                        <tbody id="timelineBody">
+                            {% for seg in plan.segments %}
+                            <tr class="timeline-row">
+                                <td class="fw-bold text-secondary">{{ seg.segment_id }}</td>
+                                <td>{{ seg.start }}s - {{ seg.end }}s</td>
+                                <td><span class="badge bg-dark border">{{ seg.duration }}s</span></td>
+                                <td>
+                                    <div class="text-white">{{ seg.vietnamese_text or '<em class="text-secondary">Chưa có lời đọc</em>'|safe }}</div>
+                                </td>
+                                <td>
+                                    <span class="badge {% if seg.tempo == 1.0 %}bg-secondary{% else %}bg-info text-dark{% endif %}">
+                                        {{ seg.tempo or 1.0 }}x
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if seg.status == 'MATCHED' %}
+                                    <span class="badge bg-success">Khớp</span>
+                                    {% elif seg.status == 'FAILED_DURATION' %}
+                                    <span class="badge bg-danger">Lệch nhịp</span>
+                                    {% elif seg.status == 'REWRITTEN' %}
+                                    <span class="badge bg-warning text-dark">Đã sửa</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">{{ seg.status or 'PENDING' }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-secondary">
+                                    Chưa khởi tạo dòng thời gian. Bấm "1. Kịch Bản Khớp Nhịp" để bắt đầu.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const videoId = "{{ video.video_id }}";
+
+    // ── Update Chinese Subtitle Mask Overlay ───────────────────────
+    function updateOverlay() {
+        const x = parseFloat(document.getElementById('inpX').value) || 0;
+        const y = parseFloat(document.getElementById('inpY').value) || 0;
+        const w = parseFloat(document.getElementById('inpW').value) || 0;
+        const h = parseFloat(document.getElementById('inpH').value) || 0;
+
+        const overlay = document.getElementById('subOverlay');
+        overlay.style.left = (x * 100) + '%';
+        overlay.style.top = (y * 100) + '%';
+        overlay.style.width = (w * 100) + '%';
+        overlay.style.height = (h * 100) + '%';
+    }
+
+    ['inpX', 'inpY', 'inpW', 'inpH'].forEach(id => {
+        document.getElementById(id)?.addEventListener('input', updateOverlay);
+    });
+
+    function applyPreset(name) {
+        if (name === 'BOTTOM') {
+            document.getElementById('inpX').value = 0.05;
+            document.getElementById('inpY').value = 0.72;
+            document.getElementById('inpW').value = 0.90;
+            document.getElementById('inpH').value = 0.20;
+        } else if (name === 'LOWER-MIDDLE') {
+            document.getElementById('inpX').value = 0.05;
+            document.getElementById('inpY').value = 0.60;
+            document.getElementById('inpW').value = 0.90;
+            document.getElementById('inpH').value = 0.20;
+        } else if (name === 'MIDDLE') {
+            document.getElementById('inpX').value = 0.05;
+            document.getElementById('inpY').value = 0.40;
+            document.getElementById('inpW').value = 0.90;
+            document.getElementById('inpH').value = 0.20;
+        }
+        updateOverlay();
+    }
+
+    // ── Real-Time Live Subtitle Preview ────────────────────────────
+    function updateLiveSubPreview() {
+        const subOverlay = document.getElementById('liveSubPreview');
+        if (!subOverlay) return;
+
+        const font = document.getElementById('subFont').value || 'Arial Bold';
+        const sizePreset = document.getElementById('subSize').value || 'medium';
+        const color = document.getElementById('subColor').value || '#FFFFFF';
+        const outlineColor = document.getElementById('subOutlineColor').value || '#000000';
+        const outlineWidth = parseFloat(document.getElementById('subOutlineWidth').value) || 2.2;
+        const position = document.getElementById('subPosition').value || 'bottom';
+        const customY = parseFloat(document.getElementById('subCustomY').value) || 0.84;
+        const animation = document.getElementById('subAnimation').value || 'fade';
+
+        // Font family & weight
+        let cleanFont = font.replace(' Bold', '').trim();
+        let isBold = font.toLowerCase().includes('bold');
+        subOverlay.style.fontFamily = `"${cleanFont}", sans-serif`;
+        subOverlay.style.fontWeight = isBold ? '700' : '500';
+
+        // Font size scaled for ~360px preview container (1080px video is 3x larger)
+        let pxSize = 13.5;
+        if (sizePreset === 'small') pxSize = 12;
+        else if (sizePreset === 'large') pxSize = 16;
+        subOverlay.style.fontSize = `${pxSize}px`;
+
+        // Color & text-shadow (outline)
+        subOverlay.style.color = color;
+        const strokePx = Math.max(1, Math.round(outlineWidth * 0.7));
+        subOverlay.style.textShadow = `
+            -${strokePx}px -${strokePx}px 0 ${outlineColor},
+             ${strokePx}px -${strokePx}px 0 ${outlineColor},
+            -${strokePx}px  ${strokePx}px 0 ${outlineColor},
+             ${strokePx}px  ${strokePx}px 0 ${outlineColor},
+             0 2px 4px rgba(0,0,0,0.8)
+        `;
+
+        // Vertical Position
+        // Preview box uses bottom %
+        let bottomPct = 14.6; // default bottom (~85.4%)
+        if (position === 'lower_center') {
+            bottomPct = 19.8; // ~80.2%
+        } else if (position === 'center') {
+            bottomPct = 45.8; // ~54.2%
+        } else if (position === 'custom') {
+            bottomPct = Math.max(5, Math.min(80, (1.0 - customY) * 100));
+        }
+        subOverlay.style.bottom = `${bottomPct}%`;
+
+        // Animation trigger
+        subOverlay.classList.remove('anim-fade');
+        void subOverlay.offsetWidth;
+        if (animation === 'fade' || animation === 'karaoke') {
+            subOverlay.classList.add('anim-fade');
+        }
+    }
+
+    // Sync color hex input and picker
+    document.getElementById('subColor')?.addEventListener('input', function() {
+        document.getElementById('subColorHex').value = this.value.toUpperCase();
+        updateLiveSubPreview();
+    });
+    document.getElementById('subColorHex')?.addEventListener('input', function() {
+        if (/^#[0-9A-Fa-f]{6}$/.test(this.value)) {
+            document.getElementById('subColor').value = this.value;
+            updateLiveSubPreview();
+        }
+    });
+
+    document.getElementById('subOutlineColor')?.addEventListener('input', function() {
+        document.getElementById('subOutlineHex').value = this.value.toUpperCase();
+        updateLiveSubPreview();
+    });
+    document.getElementById('subOutlineHex')?.addEventListener('input', function() {
+        if (/^#[0-9A-Fa-f]{6}$/.test(this.value)) {
+            document.getElementById('subOutlineColor').value = this.value;
+            updateLiveSubPreview();
+        }
+    });
+
+    document.getElementById('subOutlineWidth')?.addEventListener('input', function() {
+        document.getElementById('lblOutlineW').innerText = this.value;
+        updateLiveSubPreview();
+    });
+
+    document.getElementById('subCustomY')?.addEventListener('input', function() {
+        document.getElementById('lblCustomY').innerText = this.value;
+        updateLiveSubPreview();
+    });
+
+    document.getElementById('subPosition')?.addEventListener('change', function() {
+        document.getElementById('customPosGroup').style.display = this.value === 'custom' ? 'flex' : 'none';
+        updateLiveSubPreview();
+    });
+
+    ['subFont', 'subSize', 'subAnimation'].forEach(id => {
+        document.getElementById(id)?.addEventListener('change', updateLiveSubPreview);
+    });
+
+    function reloadLiveFrame() {
+        document.getElementById('previewImg').src = `/temp/${videoId}/frame_preview.jpg?t=${Date.now()}`;
+        document.getElementById('liveSubPreview').style.display = 'block';
+    }
+
+    function showAlert(type, msg) {
+        const box = document.getElementById('alertBox');
+        box.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${msg}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>`;
+    }
+
+    // ── Voice Preview ──────────────────────────────────────────────
+    document.getElementById('btnPreviewVoice')?.addEventListener('click', async function() {
+        const voiceName = document.getElementById('selVoiceName').value;
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang tạo...';
+
+        try {
+            const resp = await fetch('/api/settings/preview-voice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voice_name: voiceName, text: "Xin chào, đây là giọng đọc thử nghiệm của hệ thống." })
+            });
+            const data = await resp.json();
+            if (data.success && data.audio_url) {
+                const player = document.getElementById('voiceAudioPlayer');
+                player.src = data.audio_url;
+                player.style.display = 'block';
+                player.play();
+                showAlert('success', `Đã tạo giọng đọc mẫu (${data.voice_name}) thành công!`);
+            } else {
+                showAlert('danger', data.error || 'Lỗi nghe thử giọng nói');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi kết nối: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-volume-up me-1"></i>Nghe Thử Giọng';
+        }
+    });
+
+    // ── Subtitle Render Frame Preview (FFmpeg exact pixel render) ──
+    document.getElementById('btnPreviewSubRender')?.addEventListener('click', async function() {
+        const btn = this;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang render...';
+
+        const payload = {
+            font_name: document.getElementById('subFont').value,
+            font_size: document.getElementById('subSize').value,
+            primary_color: document.getElementById('subColor').value,
+            outline_color: document.getElementById('subOutlineColor').value,
+            outline_width: parseFloat(document.getElementById('subOutlineWidth').value),
+            position: document.getElementById('subPosition').value,
+            custom_pos_y: parseFloat(document.getElementById('subCustomY').value),
+            animation: document.getElementById('subAnimation').value,
+            sample_text: "Hôm nay giá đang có ưu đãi"
+        };
+
+        try {
+            const resp = await fetch(`/api/auto-edit/preview-subtitles/${videoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success && data.preview_url) {
+                document.getElementById('previewImg').src = data.preview_url;
+                // Temporarily hide live CSS overlay while showing FFmpeg rendered frame
+                document.getElementById('liveSubPreview').style.display = 'none';
+                showAlert('success', 'Đã tạo khung hình xem trước chuẩn xác bằng FFmpeg libass!');
+            } else {
+                showAlert('danger', data.error || 'Lỗi render khung hình xem trước');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-file-earmark-play me-1"></i> Render Thử Khung Hình (FFmpeg)';
+        }
+    });
+
+    // ── Save Subtitle Settings as Defaults ────────────────────────
+    document.getElementById('btnSaveSubSettings')?.addEventListener('click', async function() {
+        const btn = this;
+        btn.disabled = true;
+        const payload = {
+            font: document.getElementById('subFont').value,
+            size: document.getElementById('subSize').value,
+            color: document.getElementById('subColor').value,
+            outline_color: document.getElementById('subOutlineColor').value,
+            outline_width: parseFloat(document.getElementById('subOutlineWidth').value),
+            position: document.getElementById('subPosition').value,
+            custom_y: parseFloat(document.getElementById('subCustomY').value),
+            animation: document.getElementById('subAnimation').value,
+            voice_name: document.getElementById('selVoiceName').value
+        };
+
+        try {
+            const resp = await fetch('/api/settings/subtitles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Đã lưu cấu hình phụ đề & giọng đọc mặc định thành công!');
+            } else {
+                showAlert('danger', data.error || 'Không thể lưu cài đặt');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // ── Pipeline: 1. Generate Script ──────────────────────────────
+    document.getElementById('btnGenScript')?.addEventListener('click', async function() {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang tạo kịch bản...';
+        try {
+            const resp = await fetch(`/api/auto-edit/generate-script/${videoId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Đã tạo kịch bản phân đoạn thành công bằng Gemini!');
+                location.reload();
+            } else {
+                showAlert('danger', data.error || 'Lỗi tạo kịch bản');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-file-earmark-text me-1"></i> 1. Kịch Bản Khớp Nhịp (Gemini)';
+        }
+    });
+
+    // ── Pipeline: 2. Generate Voice ───────────────────────────────
+    document.getElementById('btnGenVoice')?.addEventListener('click', async function() {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang tạo giọng đọc...';
+        const selectedVoice = document.getElementById('selVoiceName').value;
+
+        try {
+            const resp = await fetch(`/api/auto-edit/generate-voice/${videoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ voice_name: selectedVoice })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', `Đã tạo giọng đọc (${data.voice_name || selectedVoice}) và đồng bộ thời lượng thành công!`);
+                location.reload();
+            } else {
+                showAlert('warning', data.error || 'Lỗi tạo giọng đọc');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-mic me-1"></i> 2. Giọng Đọc & Đồng Bộ (VieNeu)';
+        }
+    });
+
+    // ── Pipeline: 3. Generate Subtitles ───────────────────────────
+    document.getElementById('btnGenSubtitles')?.addEventListener('click', async function() {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang tạo phụ đề...';
+
+        const payload = {
+            font_name: document.getElementById('subFont').value,
+            font_size: document.getElementById('subSize').value,
+            primary_color: document.getElementById('subColor').value,
+            outline_color: document.getElementById('subOutlineColor').value,
+            outline_width: parseFloat(document.getElementById('subOutlineWidth').value),
+            position: document.getElementById('subPosition').value,
+            custom_pos_y: parseFloat(document.getElementById('subCustomY').value),
+            animation: document.getElementById('subAnimation').value
+        };
+
+        try {
+            const resp = await fetch(`/api/auto-edit/generate-subtitles/${videoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Đã tạo tệp phụ đề tiếng Việt ASS & SRT (phân đoạn ngắn, khớp giọng nói) thành công!');
+                document.getElementById('lblAutoStatus').innerText = 'SUBTITLES_READY';
+            } else {
+                showAlert('danger', data.error || 'Lỗi tạo phụ đề');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-badge-cc me-1"></i> 3. Tạo Phụ Đề ASS / SRT';
+        }
+    });
+
+    // ── Pipeline: 4. Render Final Video ───────────────────────────
+    document.getElementById('btnRenderVideo')?.addEventListener('click', async function() {
+        if (!confirm('Bắt đầu quá trình kết xuất (render) video 9:16 bằng FFmpeg với phụ đề và giọng đọc đã cấu hình?')) return;
+
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang render... (Có thể mất 20-60s)';
+        showAlert('info', '<i class="spinner-border spinner-border-sm me-2"></i> Đang render video 9:16 với bộ lọc FFmpeg libass, phụ đề ngắn gọn, làm mờ và hòa âm...');
+
+        const payload = {
+            cover_type: document.querySelector('input[name="coverType"]:checked').value,
+            blur_strength: parseInt(document.getElementById('rngStrength').value),
+            source_audio: document.getElementById('selSourceAudio').value,
+            include_subtitles: document.getElementById('chkSubtitles').checked,
+            include_hook: document.getElementById('chkHook').checked
+        };
+
+        try {
+            const resp = await fetch(`/api/auto-edit/render/${videoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', `<strong>XUẤT BẢN THÀNH CÔNG!</strong> Video hoàn chỉnh đã được tạo tại: <code>${data.final_path}</code> và đã sẵn sàng!`);
+                document.getElementById('lblAutoStatus').innerText = 'AUTO_EDIT_READY';
+            } else {
+                showAlert('danger', `<strong>Lỗi Render:</strong> ${data.error}`);
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi kết nối khi render: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-film me-1"></i> 4. XUẤT BẢN 9:16 (RENDER)';
+        }
+    });
+
+    // ── Analyze Frame ──────────────────────────────────────────────
+    document.getElementById('btnAnalyze')?.addEventListener('click', async function() {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang trích...';
+        try {
+            const resp = await fetch(`/api/auto-edit/analyze/${videoId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Đã phân tích video và trích xuất ảnh xem trước thành công!');
+                reloadLiveFrame();
+                document.getElementById('lblAutoStatus').innerText = data.status;
+            } else {
+                showAlert('danger', data.error || 'Phân tích thất bại');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi kết nối: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-search me-1"></i> Trích Khung Hình';
+        }
+    });
+
+    // ── Auto Detect Sub Region ─────────────────────────────────────
+    document.getElementById('btnAutoDetect')?.addEventListener('click', async function() {
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Đang quét...';
+        try {
+            const resp = await fetch(`/api/auto-edit/detect-sub/${videoId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.region) {
+                document.getElementById('inpX').value = data.region.x;
+                document.getElementById('inpY').value = data.region.y;
+                document.getElementById('inpW').value = data.region.width;
+                document.getElementById('inpH').value = data.region.height;
+                updateOverlay();
+            }
+            if (data.success) {
+                showAlert('success', data.reason || 'Tự động quét phụ đề thành công!');
+            } else {
+                showAlert('warning', data.reason || 'Đã áp dụng vùng phụ đề đáy khuyên dùng.');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi quét: ' + e.message);
+        } finally {
+            this.disabled = false;
+            this.innerHTML = '<i class="bi bi-magic me-1"></i> Tự Quét';
+        }
+    });
+
+    // ── Save Chinese Region ────────────────────────────────────────
+    document.getElementById('btnSaveRegion')?.addEventListener('click', async function() {
+        const payload = {
+            mode: 'custom',
+            x: parseFloat(document.getElementById('inpX').value),
+            y: parseFloat(document.getElementById('inpY').value),
+            width: parseFloat(document.getElementById('inpW').value),
+            height: parseFloat(document.getElementById('inpH').value)
+        };
+        try {
+            const resp = await fetch(`/api/auto-edit/set-region/${videoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', 'Đã cập nhật vùng che phụ đề tiếng Trung thành công!');
+            } else {
+                showAlert('danger', data.error || 'Lỗi lưu vùng che');
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        }
+    });
+
+    // ── Switch CapCut ──────────────────────────────────────────────
+    document.getElementById('btnSwitchCapcut')?.addEventListener('click', async function() {
+        if (!confirm('Chuyển sang chế độ biên tập thủ công bằng CapCut?')) return;
+        try {
+            const resp = await fetch(`/api/auto-edit/switch-mode/${videoId}`, { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                showAlert('success', data.message);
+                setTimeout(() => window.location.href = `/voice`, 1200);
+            }
+        } catch (e) {
+            showAlert('danger', 'Lỗi: ' + e.message);
+        }
+    });
+
+    // Initialize UI states on load
+    updateOverlay();
+    updateLiveSubPreview();
+</script>
+{% endblock %}

@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - AI Content Factory{% endblock %}
+{% block page_title %}Tổng Quan Hệ Thống (Dashboard){% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-4">
+    <!-- Stat Cards -->
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-box-seam me-1 text-primary"></i> Products (Sản phẩm)</div>
+            <div class="stat-value">{{ stats.products }}</div>
+            <div class="mt-2 small text-secondary">Sản phẩm đã phân tích</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-camera-video me-1 text-info"></i> Videos Found (Tìm thấy)</div>
+            <div class="stat-value">{{ stats.videos_found }}</div>
+            <div class="mt-2 small text-secondary">Video thu thập từ Douyin</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-check2-circle me-1 text-primary"></i> Approved (Duyệt)</div>
+            <div class="stat-value">{{ stats.approved }}</div>
+            <div class="mt-2 small text-secondary">Video sẵn sàng tải</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-download me-1 text-success"></i> Downloaded (Đã tải)</div>
+            <div class="stat-value">{{ stats.downloaded }}</div>
+            <div class="mt-2 small text-secondary">Video gốc trên máy local</div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-hourglass-split me-1 text-warning"></i> Waiting CapCut</div>
+            <div class="stat-value">{{ stats.waiting_capcut }}</div>
+            <div class="mt-2 small text-secondary">Chờ dựng & xuất final</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-file-earmark-check me-1 text-success"></i> Content Ready</div>
+            <div class="stat-value">{{ stats.content_ready }}</div>
+            <div class="mt-2 small text-secondary">7 captions đã hoàn tất</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-send me-1 text-warning"></i> Publishing (Đang đăng)</div>
+            <div class="stat-value">{{ stats.publishing }}</div>
+            <div class="mt-2 small text-secondary">Tiến độ 1/7 - 6/7</div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="stat-card">
+            <div class="stat-title"><i class="bi bi-patch-check-fill me-1 text-success"></i> Completed (Xong 7/7)</div>
+            <div class="stat-value text-success">{{ stats.completed }}</div>
+            <div class="mt-2 small text-secondary">Hoàn thành tất cả nền tảng</div>
+        </div>
+    </div>
+</div>
+
+<!-- Pipeline Status Overview -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-diagram-3-fill me-2 text-primary"></i>Quy Trình Sản Xuất (Pipeline Status)</span>
+        <span class="small text-secondary">Local-first Automated Pipeline</span>
+    </div>
+    <div class="card-body">
+        <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between p-2 rounded bg-dark border border-secondary-subtle">
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">1. Research</div>
+                <span class="badge status-FOUND">FOUND</span>
+            </div>
+            <i class="bi bi-arrow-right text-secondary"></i>
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">2. Duyệt</div>
+                <span class="badge status-APPROVED">APPROVED</span>
+            </div>
+            <i class="bi bi-arrow-right text-secondary"></i>
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">3. Tải Video</div>
+                <span class="badge status-DOWNLOADED">DOWNLOADED</span>
+            </div>
+            <i class="bi bi-arrow-right text-secondary"></i>
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">4. Script & Voice</div>
+                <span class="badge status-VOICE_READY">VOICE_READY</span>
+            </div>
+            <i class="bi bi-arrow-right text-secondary"></i>
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">5. Dựng CapCut</div>
+                <span class="badge status-WAITING_CAPCUT">WAITING_CAPCUT</span>
+            </div>
+            <i class="bi bi-arrow-right text-secondary"></i>
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">6. Xuất Video & Auto Caption</div>
+                <span class="badge status-CONTENT_READY">CONTENT_READY</span>
+            </div>
+            <i class="bi bi-arrow-right text-secondary"></i>
+            <div class="text-center px-3 py-2">
+                <div class="small text-secondary">7. Đăng 7 Nền Tảng</div>
+                <span class="badge status-COMPLETED">COMPLETED (7/7)</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Recent Videos -->
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-play-circle-fill me-2 text-info"></i>Video Gần Đây (Recent Videos)</span>
+                <a href="/videos" class="btn btn-sm btn-outline-secondary">Xem tất cả</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_videos %}
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>Video ID</th>
+                                <th>Sản Phẩm</th>
+                                <th>Lượt Xem</th>
+                                <th>Trạng Thái</th>
+                                <th>Ngày Tạo</th>
+                                <th>Thao Tác</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for v in recent_videos %}
+                            <tr>
+                                <td class="fw-bold text-white">{{ v.video_id }}</td>
+                                <td>
+                                    {% if v.product %}
+                                    <span class="text-truncate d-inline-block" style="max-width: 180px;">{{ v.product.name_vietnamese }}</span>
+                                    {% else %}
+                                    <span class="text-secondary">N/A</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ v.views or '-' }}</td>
+                                <td>
+                                    <span class="badge badge-status status-{{ v.status }}">{{ v.status }}</span>
+                                </td>
+                                <td class="small text-secondary">{{ v.created_at.strftime('%d/%m/%Y %H:%M') if v.created_at else '-' }}</td>
+                                <td>
+                                    <a href="{{ v.douyin_url }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="Mở link Douyin">
+                                        <i class="bi bi-box-arrow-up-right"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="p-4 text-center text-secondary">
+                    <i class="bi bi-inbox fs-2 d-block mb-2"></i>
+                    Chưa có video nào. Hãy bắt đầu nghiên cứu sản phẩm tại trang <a href="/research" class="text-primary text-decoration-none">Research</a>!
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Errors -->
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-exclamation-triangle-fill me-2 text-danger"></i>Cảnh Báo & Lỗi (Recent Errors)</span>
+                <span class="badge bg-secondary-subtle text-secondary">{{ recent_errors|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_errors %}
+                <ul class="list-group list-group-flush">
+                    {% for err in recent_errors %}
+                    <li class="list-group-item bg-transparent border-secondary-subtle">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="fw-bold text-white">{{ err.video_id }}</span>
+                                <span class="badge badge-status status-{{ err.status }} ms-2">{{ err.status }}</span>
+                                <div class="small text-danger-emphasis mt-1">{{ err.notes or 'Cần kiểm tra hoặc thử lại.' }}</div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger mt-1">Thử lại</button>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="p-4 text-center text-secondary">
+                    <i class="bi bi-shield-check fs-2 text-success d-block mb-2"></i>
+                    Không có lỗi nào ghi nhận. Hệ thống đang vận hành ổn định!
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

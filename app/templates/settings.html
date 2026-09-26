@@ -1,0 +1,499 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - AI Content Factory{% endblock %}
+{% block page_title %}Cài Đặt Hệ Thống (Settings){% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8">
+        {% if message %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i> {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endif %}
+
+        <form method="POST" action="/settings" class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-sliders me-2 text-primary"></i>Cấu Hình Cốt Lõi
+            </div>
+            <div class="card-body">
+                <!-- Gemini AI -->
+                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
+                    <i class="bi bi-stars text-primary me-2"></i>Google Gemini AI
+                </h6>
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Gemini API Key:</label>
+                    <div class="input-group">
+                        <input type="password" class="form-control" name="gemini_api_key" 
+                               placeholder="{% if settings.gemini_api_key_set %}{{ settings.gemini_api_key_masked }}{% else %}Nhập API Key...{% endif %}">
+                        <button class="btn btn-outline-secondary" type="button" id="btnToggleKey">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                    </div>
+                    <div class="form-text text-secondary">
+                        {% if settings.gemini_api_key_set %}
+                        <span class="text-success"><i class="bi bi-check-circle"></i> Đã cấu hình API Key: {{ settings.gemini_api_key_masked }}</span>
+                        {% else %}
+                        <span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Chưa có API Key. Vui lòng nhập để sử dụng tính năng AI.</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label fw-semibold">Gemini Model:</label>
+                    <input type="text" class="form-control" name="gemini_model" value="{{ settings.gemini_model }}">
+                    <div class="form-text text-secondary">Ví dụ: gemini-3.8-flash</div>
+                </div>
+
+                <!-- Research Parameters -->
+                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
+                    <i class="bi bi-search text-info me-2"></i>Nghiên Cứu (Research Defaults)
+                </h6>
+                <div class="row g-3 mb-4">
+                    <div class="col-md-4">
+                        <label class="form-label small">Sản phẩm / lần nghiên cứu:</label>
+                        <input type="number" class="form-control" name="products_per_research" value="{{ settings.products_per_research }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Từ khóa / sản phẩm:</label>
+                        <input type="number" class="form-control" name="keywords_per_product" value="{{ settings.keywords_per_product }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Video / sản phẩm:</label>
+                        <input type="number" class="form-control" name="videos_per_product" value="{{ settings.videos_per_product }}">
+                    </div>
+                </div>
+
+                <!-- TTS Settings -->
+                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
+                    <i class="bi bi-mic text-warning me-2"></i>Chuyển Đổi Văn Bản Thành Giọng Nói (VieNeu-TTS)
+                </h6>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label small">TTS Engine:</label>
+                        <input type="text" class="form-control" name="tts_engine" value="{{ settings.tts_engine }}" readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Giọng đọc mặc định:</label>
+                        <select class="form-select" name="default_voice">
+                            {% for vc in settings.available_voices %}
+                            <option value="{{ vc.id }}" {% if settings.default_voice == vc.id %}selected{% endif %}>{{ vc.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="form-check form-switch mb-4">
+                    <input class="form-check-input" type="checkbox" name="auto_generate_voice" id="autoVoice" {% if settings.auto_generate_voice %}checked{% endif %}>
+                    <label class="form-check-label" for="autoVoice">Tự động tạo giọng đọc ngay sau khi kịch bản được phê duyệt hợp lệ</label>
+                </div>
+
+                <!-- Storage Paths -->
+                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
+                    <i class="bi bi-folder text-success me-2"></i>Thư Mục Lưu Trữ Local (Storage Folders)
+                </h6>
+                <div class="mb-3">
+                    <label class="form-label small">Video Gốc (Original Videos):</label>
+                    <input type="text" class="form-control" name="original_folder" value="{{ settings.original_folder }}">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">Gói Biên Tập CapCut (CapCut Packages):</label>
+                    <input type="text" class="form-control" name="package_folder" value="{{ settings.package_folder }}">
+                </div>
+                <div class="mb-4">
+                    <label class="form-label small">Video Xuất Final (Final Export Videos):</label>
+                    <input type="text" class="form-control" name="final_folder" value="{{ settings.final_folder }}">
+                </div>
+
+                <!-- Phase 12 Auto Video Editor -->
+                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
+                    <i class="bi bi-film text-info me-2"></i>Biên Tập Video Tự Động (Auto Video Editor - Phase 12)
+                </h6>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label small">Đường dẫn FFmpeg:</label>
+                        <input type="text" class="form-control form-control-sm" name="ffmpeg_path" value="{{ settings.ffmpeg_path }}" placeholder="Tự động phát hiện nếu để trống">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small">Đường dẫn ffprobe:</label>
+                        <input type="text" class="form-control form-control-sm" name="ffprobe_path" value="{{ settings.ffprobe_path }}" placeholder="Tự động phát hiện nếu để trống">
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label small">Xử lý phụ đề tiếng Trung:</label>
+                        <select class="form-select form-select-sm" name="auto_edit_cover_type">
+                            <option value="blur" {% if settings.auto_edit_cover_type == 'blur' %}selected{% endif %}>Làm mờ (Blur)</option>
+                            <option value="cover" {% if settings.auto_edit_cover_type == 'cover' %}selected{% endif %}>Hộp che mờ (Cover)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Độ mạnh làm mờ (5-30):</label>
+                        <input type="number" min="5" max="30" class="form-control form-control-sm" name="auto_edit_blur_strength" value="{{ settings.auto_edit_blur_strength }}">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Âm thanh video gốc:</label>
+                        <select class="form-select form-select-sm" name="auto_edit_source_audio">
+                            <option value="low" {% if settings.auto_edit_source_audio == 'low' %}selected{% endif %}>Nhỏ nhẹ nền (15% Vol)</option>
+                            <option value="off" {% if settings.auto_edit_source_audio == 'off' %}selected{% endif %}>Tắt tiếng (Muted)</option>
+                            <option value="keep" {% if settings.auto_edit_source_audio == 'keep' %}selected{% endif %}>Giữ rõ (40% Vol)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-4">
+                    <div class="col-md-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="auto_edit_subtitles" id="chkSub" {% if settings.auto_edit_subtitles %}checked{% endif %}>
+                            <label class="form-check-label small" for="chkSub">Bật phụ đề tiếng Việt</label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="auto_edit_hook" id="chkHook" {% if settings.auto_edit_hook %}checked{% endif %}>
+                            <label class="form-check-label small" for="chkHook">Bật chữ Hook mở đầu</label>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" name="auto_edit_auto_render" id="chkAutoR" {% if settings.auto_edit_auto_render %}checked{% endif %}>
+                            <label class="form-check-label small" for="chkAutoR">Tự động Render khi duyệt</label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 13 Subtitle UX Settings -->
+                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
+                    <i class="bi bi-badge-cc text-primary me-2"></i>Tùy Chỉnh Kiểu Dáng Phụ Đề Tiếng Việt (Phase 13 Subtitle UX)
+                </h6>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label small">Phông chữ (Font):</label>
+                        <select class="form-select form-select-sm" name="subtitle_font">
+                            {% for f in settings.verified_fonts %}
+                            <option value="{{ f.id }}" {% if settings.subtitles.font == f.id %}selected{% endif %}>{{ f.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Kích cỡ (Size):</label>
+                        <select class="form-select form-select-sm" name="subtitle_size">
+                            <option value="small" {% if settings.subtitles.size == 'small' %}selected{% endif %}>Nhỏ (Small - 34px)</option>
+                            <option value="medium" {% if settings.subtitles.size == 'medium' %}selected{% endif %}>Vừa (Medium - 40px Chuẩn)</option>
+                            <option value="large" {% if settings.subtitles.size == 'large' %}selected{% endif %}>Lớn (Large - 48px)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label small">Hiệu ứng xuất hiện (Animation):</label>
+                        <select class="form-select form-select-sm" name="subtitle_animation">
+                            <option value="fade" {% if settings.subtitles.animation == 'fade' %}selected{% endif %}>Mờ dần từng câu (Fade / Smooth)</option>
+                            <option value="karaoke" {% if settings.subtitles.animation == 'karaoke' %}selected{% endif %}>Karaoke (Nổi bật từng từ)</option>
+                            <option value="none" {% if settings.subtitles.animation == 'none' %}selected{% endif %}>Tĩnh (Không hiệu ứng)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label small">Màu chữ (Text Color):</label>
+                        <input type="color" class="form-control form-control-color w-100" name="subtitle_color" value="{{ settings.subtitles.color or '#FFFFFF' }}" title="Chọn màu chữ">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Màu viền (Outline Color):</label>
+                        <input type="color" class="form-control form-control-color w-100" name="subtitle_outline_color" value="{{ settings.subtitles.outline_color or '#000000' }}" title="Chọn màu viền">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Độ dày viền (1.0 - 4.0):</label>
+                        <input type="number" step="0.1" min="1.0" max="4.0" class="form-control form-control-sm" name="subtitle_outline_width" value="{{ settings.subtitles.outline_width or 2.2 }}">
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Vị trí hiển thị (Position):</label>
+                        <select class="form-select form-select-sm" name="subtitle_position">
+                            <option value="bottom" {% if settings.subtitles.position == 'bottom' %}selected{% endif %}>Dưới đáy an toàn (Bottom ~85%)</option>
+                            <option value="lower_center" {% if settings.subtitles.position == 'lower_center' %}selected{% endif %}>Dưới-giữa (Lower Center ~80%)</option>
+                            <option value="center" {% if settings.subtitles.position == 'center' %}selected{% endif %}>Chính giữa (Center ~54%)</option>
+                            <option value="custom" {% if settings.subtitles.position == 'custom' %}selected{% endif %}>Tùy chỉnh (Custom Y)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label small">Tọa độ dọc tùy chỉnh Y (0.20 - 0.95):</label>
+                    <input type="number" step="0.01" min="0.2" max="0.95" class="form-control form-control-sm" name="subtitle_custom_y" value="{{ settings.subtitles.custom_y or 0.84 }}">
+                    <div class="form-text text-secondary small">Vùng an toàn khuyên dùng trên TikTok / Reels là 0.78 đến 0.88 để không bị che bởi thanh điều khiển video.</div>
+                </div>
+
+                <button type="submit" class="btn btn-primary px-4">
+                    <i class="bi bi-save me-1"></i> Lưu Cài Đặt
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Quick Diagnostics & Gemini Usage Panel -->
+    <div class="col-lg-4">
+        <!-- Gemini Status Card -->
+        <div class="card mb-4 border-secondary-subtle">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-stars text-primary me-2"></i>Trạng Thái Gemini</span>
+                <span class="badge bg-primary-subtle text-primary small">{{ settings.gemini_model }}</span>
+            </div>
+            <div class="card-body">
+                <div class="gemini-settings-status mb-3" id="settingsGeminiStatusBox">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="gemini-status-dot fs-5" id="settingsStatusDot">●</span>
+                        <div>
+                            <div class="fw-semibold" id="settingsStatusMsg">Đang tải...</div>
+                            <div class="small text-secondary" id="settingsStatusHint"></div>
+                        </div>
+                    </div>
+                    <div class="mt-2 small text-secondary" id="settingsStatusTime"></div>
+                </div>
+
+                <!-- KIỂM TRA GEMINI button — user-initiated only, costs 1 Gemini request -->
+                <button class="btn btn-outline-info w-100 fw-semibold" id="btnCheckGemini" title="Nhấn để kiểm tra kết nối Gemini. Sẽ gửi 1 yêu cầu nhỏ tới Gemini.">
+                    <i class="bi bi-stars me-1"></i> KIỂM TRA GEMINI
+                    <span id="checkGeminiSpinner" class="spinner-border spinner-border-sm ms-2 d-none"></span>
+                </button>
+                <div class="form-text text-secondary text-center mt-1">
+                    <i class="bi bi-info-circle me-1"></i>Sẽ gửi 1 yêu cầu nhỏ tới Gemini API
+                </div>
+
+                <hr class="border-secondary-subtle my-3">
+
+                <!-- Gemini Local Usage Counter -->
+                <div class="small fw-bold text-secondary text-uppercase mb-2">
+                    <i class="bi bi-graph-up me-1"></i>Thống kê cục bộ (Hôm nay)
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
+                    <span class="text-secondary small">Yêu cầu đã gửi:</span>
+                    <span class="fw-bold text-white">{{ settings.gemini_usage.requests_today }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
+                    <span class="text-secondary small">Thành công:</span>
+                    <span class="fw-bold text-success">{{ settings.gemini_usage.successful_requests }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
+                    <span class="text-secondary small">Thất bại:</span>
+                    <span class="fw-bold text-danger">{{ settings.gemini_usage.failed_requests }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
+                    <span class="text-secondary small">Lỗi Quota (429):</span>
+                    <span class="fw-bold {% if settings.gemini_usage.quota_errors > 0 %}text-warning{% else %}text-secondary{% endif %}">
+                        {{ settings.gemini_usage.quota_errors }}
+                    </span>
+                </div>
+                <div class="form-text text-secondary mt-2 small">
+                    <i class="bi bi-info-circle me-1"></i>{{ settings.gemini_usage.disclaimer }}
+                </div>
+            </div>
+        </div>
+
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-tools me-2 text-info"></i>Kiểm Tra Kết Nối (Diagnostics)
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <button class="btn btn-outline-info w-100 mb-2 text-start d-flex justify-content-between align-items-center" id="btnTestGemini">
+                        <span><i class="bi bi-stars me-2"></i>KIỂM TRA GEMINI</span>
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                    <div id="geminiTestResult" class="small text-secondary"></div>
+                </div>
+
+                <div class="mb-3">
+                    <button class="btn btn-outline-primary w-100 mb-2 text-start d-flex justify-content-between align-items-center" id="btnTestFFmpeg">
+                        <span><i class="bi bi-film me-2"></i>TEST FFMPEG & FFPROBE</span>
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                    <div id="ffmpegTestResult" class="small text-secondary"></div>
+                </div>
+
+                <div class="mb-3">
+                    <button class="btn btn-outline-warning w-100 mb-2 text-start d-flex justify-content-between align-items-center" id="btnTestTTS">
+                        <span><i class="bi bi-mic me-2"></i>TEST TTS</span>
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                    <div id="ttsTestResult" class="small text-secondary"></div>
+                </div>
+
+                <div class="mb-3">
+                    <button class="btn btn-outline-success w-100 mb-2 text-start d-flex justify-content-between align-items-center" id="btnTestWatcher">
+                        <span><i class="bi bi-folder-check me-2"></i>TEST FOLDER WATCHER</span>
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                    <div id="watcherTestResult" class="small text-secondary"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const STATUS_COLORS = {
+        READY:          '#22c55e',
+        CHECKING:       '#60a5fa',
+        BUSY:           '#f59e0b',
+        RATE_LIMITED:   '#f59e0b',
+        QUOTA_EXCEEDED: '#f97316',
+        AUTH_ERROR:     '#ef4444',
+        NETWORK_ERROR:  '#ef4444',
+        ERROR:          '#ef4444',
+        UNKNOWN:        '#6b7280',
+    };
+
+    // ── Settings Gemini Status Panel ──────────────────────────────
+    function applySettingsStatus(data) {
+        const dot  = document.getElementById('settingsStatusDot');
+        const msg  = document.getElementById('settingsStatusMsg');
+        const hint = document.getElementById('settingsStatusHint');
+        const time = document.getElementById('settingsStatusTime');
+        if (!dot) return;
+
+        const s = data.status || 'UNKNOWN';
+        dot.style.color = STATUS_COLORS[s] || '#6b7280';
+        if (msg)  msg.textContent = data.message || s;
+        if (hint) hint.textContent = data.hint || '';
+
+        let timeText = '';
+        if (data.last_success_at) {
+            timeText = `Thành công lần cuối: ${data.last_success_at.replace('T', ' ')}`;
+        } else if (data.last_status_at) {
+            timeText = `Cập nhật lúc: ${data.last_status_at.replace('T', ' ')}`;
+        }
+        if (time) time.textContent = timeText;
+    }
+
+    // Load initial status on page load (local endpoint, no Gemini call)
+    async function loadSettingsStatus() {
+        try {
+            const r = await fetch('/api/gemini/status', { cache: 'no-store' });
+            if (r.ok) {
+                const d = await r.json();
+                applySettingsStatus(d);
+            }
+        } catch(e) {}
+    }
+
+    // React to global badge updates
+    window.addEventListener('geminiStatusUpdate', function(e) {
+        applySettingsStatus(e.detail);
+    });
+
+    document.addEventListener('DOMContentLoaded', loadSettingsStatus);
+
+    // ── KIỂM TRA GEMINI button (Status Card) ─────────────────────
+    // User-initiated: sends 1 real Gemini request
+    document.getElementById('btnCheckGemini')?.addEventListener('click', async function() {
+        const btn = this;
+        const spinner = document.getElementById('checkGeminiSpinner');
+        btn.disabled = true;
+        if (spinner) spinner.classList.remove('d-none');
+
+        const dot  = document.getElementById('settingsStatusDot');
+        const msg  = document.getElementById('settingsStatusMsg');
+        const hint = document.getElementById('settingsStatusHint');
+        if (dot) dot.style.color = '#60a5fa';
+        if (msg) msg.textContent = 'Đang kiểm tra kết nối Gemini...';
+        if (hint) hint.textContent = '';
+
+        try {
+            const resp = await fetch('/api/settings/test-gemini', { method: 'POST' });
+            const data = await resp.json();
+            // Refresh status display from local endpoint after real call
+            await loadSettingsStatus();
+        } catch(e) {
+            if (msg) msg.textContent = 'Lỗi kết nối cục bộ: ' + e.message;
+            if (dot) dot.style.color = '#ef4444';
+        } finally {
+            btn.disabled = false;
+            if (spinner) spinner.classList.add('d-none');
+        }
+    });
+
+    // ── KIỂM TRA GEMINI in Diagnostics panel ─────────────────────
+    document.getElementById('btnTestGemini')?.addEventListener('click', async function() {
+        const resDiv = document.getElementById('geminiTestResult');
+        resDiv.innerHTML = '<span class="text-info"><i class="spinner-border spinner-border-sm me-1"></i> Đang kiểm tra kết nối...</span>';
+        try {
+            const resp = await fetch('/api/settings/test-gemini', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                resDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Kết nối thành công: ${data.message}</span>`;
+            } else if (data.quota_exceeded) {
+                resDiv.innerHTML = `<span class="text-warning"><i class="bi bi-clock-history me-1"></i> Đã hết hạn mức hôm nay. ${data.error}</span>`;
+            } else {
+                resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i> ${data.error}</span>`;
+            }
+            // Refresh status panel after real test
+            await loadSettingsStatus();
+        } catch (e) {
+            resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Lỗi: ${e.message}</span>`;
+        }
+    });
+
+    // ── API Key toggle ────────────────────────────────────────────
+    document.getElementById('btnToggleKey')?.addEventListener('click', function() {
+        const input = document.querySelector('input[name="gemini_api_key"]');
+        if (input.type === 'password') {
+            input.type = 'text';
+            this.innerHTML = '<i class="bi bi-eye-slash"></i>';
+        } else {
+            input.type = 'password';
+            this.innerHTML = '<i class="bi bi-eye"></i>';
+        }
+    });
+
+    document.getElementById('btnTestTTS')?.addEventListener('click', async function() {
+        const resDiv = document.getElementById('ttsTestResult');
+        resDiv.innerHTML = '<span class="text-warning"><i class="spinner-border spinner-border-sm me-1"></i> Đang kiểm tra VieNeu-TTS...</span>';
+        try {
+            const resp = await fetch('/api/settings/test-voice', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                resDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> TTS sẵn sàng: ${data.status}</span>`;
+            } else {
+                resDiv.innerHTML = `<span class="text-warning"><i class="bi bi-info-circle-fill me-1"></i> ${data.error || 'Trạng thái: ' + data.status}</span>`;
+            }
+        } catch (e) {
+            resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Lỗi: ${e.message}</span>`;
+        }
+    });
+
+    document.getElementById('btnTestWatcher')?.addEventListener('click', async function() {
+        const resDiv = document.getElementById('watcherTestResult');
+        resDiv.innerHTML = '<span class="text-info"><i class="spinner-border spinner-border-sm me-1"></i> Đang kiểm tra thư mục Final...</span>';
+        try {
+            const resp = await fetch('/api/settings/test-watcher', { method: 'POST' });
+            const data = await resp.json();
+            if (data.success) {
+                resDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Watcher hoạt động: ${data.status} (Thư mục: ${data.watch_dir})</span>`;
+            } else {
+                resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i> Lỗi: ${data.error}</span>`;
+            }
+        } catch (e) {
+            resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Lỗi: ${e.message}</span>`;
+        }
+    });
+
+    document.getElementById('btnTestFFmpeg')?.addEventListener('click', async function() {
+        const resDiv = document.getElementById('ffmpegTestResult');
+        resDiv.innerHTML = '<span class="text-info"><i class="spinner-border spinner-border-sm me-1"></i> Đang kiểm tra FFmpeg & ffprobe...</span>';
+        try {
+            const resp = await fetch('/api/settings/test-ffmpeg', { method: 'POST' });
+            const data = await resp.json();
+            if (data.ready) {
+                resDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i> Sẵn sàng!<br><small class="text-secondary">${data.ffmpeg_version.split(' ')[0]} ${data.ffmpeg_version.split(' ')[2]}</small></span>`;
+            } else {
+                resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i> FFmpeg hoặc ffprobe chưa sẵn sàng.</span>`;
+            }
+        } catch (e) {
+            resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Lỗi: ${e.message}</span>`;
+        }
+    });
+</script>
+{% endblock %}
+

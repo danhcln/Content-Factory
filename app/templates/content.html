@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Content Management - AI Content Factory{% endblock %}
+{% block page_title %}Quản Lý Nội Dung Đa Nền Tảng (7 Platforms Content){% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-earmark-text-fill me-2 text-primary"></i>Danh Sách Nội Dung Tự Động Tạo (7 Nền Tảng)</span>
+    </div>
+    <div class="card-body p-0">
+        {% if content_items %}
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Video ID</th>
+                        <th>TikTok</th>
+                        <th>Facebook Page</th>
+                        <th>Instagram</th>
+                        <th>YouTube Title</th>
+                        <th>Trạng Thái</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in content_items %}
+                    <tr>
+                        <td class="fw-bold text-white">{{ item.video_id }}</td>
+                        <td class="small text-truncate" style="max-width: 150px;">{{ item.tiktok_caption or '-' }}</td>
+                        <td class="small text-truncate" style="max-width: 150px;">{{ item.facebook_page_caption or '-' }}</td>
+                        <td class="small text-truncate" style="max-width: 150px;">{{ item.instagram_caption or '-' }}</td>
+                        <td class="small text-truncate" style="max-width: 150px;">{{ item.youtube_title or '-' }}</td>
+                        <td><span class="badge badge-status status-{{ item.status }}">{{ item.status }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-5 text-center text-secondary">
+            <i class="bi bi-file-earmark-text fs-1 d-block mb-3"></i>
+            Chưa có nội dung đa nền tảng nào. Nội dung sẽ tự động tạo sau khi video hoàn thành CapCut và được nhận diện tại thư mục Final.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
