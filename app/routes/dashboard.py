@@ -40,6 +40,26 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
     ]
     recent_errors = db.query(Video).filter(Video.status.in_(error_statuses)).order_by(desc(Video.created_at)).limit(10).all()
 
+    from app.services.ffmpeg_utils import check_ffmpeg_available
+    from app.services.tts.vieneu_provider import VieNeuProvider
+    from app.services.publishing.manager import PublishingManager
+
+    ff_status = check_ffmpeg_available()
+    vieneu_prov = VieNeuProvider()
+    pub_mgr = PublishingManager()
+    social_connections = pub_mgr.get_all_connections(db)
+
+    system_status = {
+        "server_running": True,
+        "ffmpeg_ready": bool(ff_status.get("ready")),
+        "vieneu_ready": bool(vieneu_prov.is_available()),
+        "database_ready": True,
+        "downloader_ready": True,
+        "auto_editor_ready": bool(ff_status.get("ready")),
+        "social_publishing_ready": True,
+        "social_connections": social_connections
+    }
+
     stats = {
         "products": products_count,
         "videos_found": videos_found,
@@ -58,6 +78,7 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
             "stats": stats,
             "recent_videos": recent_videos,
             "recent_errors": recent_errors,
+            "system_status": system_status,
             "active_page": "dashboard"
         }
     )

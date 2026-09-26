@@ -7,6 +7,15 @@ echo           AI CONTENT FACTORY - LOCAL SYSTEM
 echo ===================================================
 echo.
 
+:: Detect if port 8000 is already in use
+netstat -ano | findstr LISTENING | findstr :8000 >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [INFO] AI Content Factory server is already running on http://localhost:8000!
+    echo Opening browser window directly...
+    start http://localhost:8000
+    exit /b 0
+)
+
 :: Locate Python executable (.venv_vieneu_new preferred)
 set PYTHON_EXE=
 if exist ".venv_vieneu_new\Scripts\python.exe" (
@@ -40,11 +49,11 @@ if not exist "temp" mkdir "temp"
 if not exist "logs" mkdir "logs"
 
 echo [OK] Folders initialized.
-echo Starting Web Server at http://127.0.0.1:8000 ...
+echo Starting Web Server at http://localhost:8000 ...
 echo.
 
 :: Open browser after 2 seconds in background
-start "" cmd /c "timeout /t 2 >nul & start http://127.0.0.1:8000"
+start "" cmd /c "timeout /t 2 >nul & start http://localhost:8000"
 
 :: Start Uvicorn
 "%PYTHON_EXE%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000

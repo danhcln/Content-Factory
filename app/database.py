@@ -54,7 +54,7 @@ def migrate_schema():
             res = conn.execute(text("PRAGMA table_info(videos)")).fetchall()
             existing_cols = {r[1] for r in res}
 
-            new_columns = [
+            video_columns = [
                 ("edit_mode", "VARCHAR(32) DEFAULT 'AUTO_EDIT'"),
                 ("auto_edit_status", "VARCHAR(64)"),
                 ("subtitle_region", "TEXT"),
@@ -63,9 +63,26 @@ def migrate_schema():
                 ("render_error", "TEXT")
             ]
 
-            for col_name, col_type in new_columns:
+            for col_name, col_type in video_columns:
                 if col_name not in existing_cols:
                     conn.execute(text(f"ALTER TABLE videos ADD COLUMN {col_name} {col_type}"))
+                    conn.commit()
+
+            # Check publishing table columns
+            res_pub = conn.execute(text("PRAGMA table_info(publishing)")).fetchall()
+            existing_pub_cols = {r[1] for r in res_pub}
+
+            pub_columns = [
+                ("scheduled_at", "DATETIME"),
+                ("published_at", "DATETIME"),
+                ("publish_status", "VARCHAR(64) DEFAULT 'NOT_PUBLISHED'"),
+                ("platform_post_id", "TEXT"),
+                ("error_message", "TEXT")
+            ]
+
+            for col_name, col_type in pub_columns:
+                if col_name not in existing_pub_cols:
+                    conn.execute(text(f"ALTER TABLE publishing ADD COLUMN {col_name} {col_type}"))
                     conn.commit()
     except Exception as e:
         # If table doesn't exist yet, create_all will create it with all columns

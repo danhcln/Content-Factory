@@ -36,7 +36,7 @@ def test_phase11_e2e():
     client = TestClient(app)
     db: Session = SessionLocal()
 
-    target_pid = "P0001"
+    target_pid = "PE2E_0001"
     target_url = "https://v.douyin.com/e2e_douyin_p1_v1/"
 
     print("\n--- CLEANUP & PREPARATION ---")
@@ -228,10 +228,9 @@ def test_phase11_e2e():
     assert v_rec.status in ["READY", "CONTENT_READY"]
     print(f"  [OK] 7-platform content saved to SQLite -> Status: {v_rec.status}")
 
-    # Step 10: Publishing Queue 0/7 -> 7/7 COMPLETED
-    print("\n[STEP 10: PUBLISHING QUEUE 7-PLATFORM POST TRACKING]")
+    # Step 10: Publishing Queue 0/6 -> 6/6 COMPLETED
+    print("\n[STEP 10: PUBLISHING QUEUE 6-PLATFORM POST TRACKING]")
     platforms = [
-        "facebook_personal",
         "facebook_page",
         "tiktok",
         "threads",
@@ -245,19 +244,19 @@ def test_phase11_e2e():
         assert res.status_code == 200
         data = res.json()
         assert data["published_count"] == idx
-        if idx < 7:
+        if idx < 6:
             assert data["status"] == "PARTIAL"
         else:
             assert data["status"] == "COMPLETED"
-        print(f"  [OK] Platform {plat} marked -> Progress: {idx}/7 ({data['status']})")
+        print(f"  [OK] Platform {plat} marked -> Progress: {idx}/6 ({data['status']})")
 
     db.expire_all()
     pub_final = db.query(Publishing).filter(Publishing.video_id == created_vid).first()
     v_final = db.query(Video).filter(Video.video_id == created_vid).first()
-    assert pub_final.published_count == 7
+    assert pub_final.published_count == 6
     assert pub_final.status == "COMPLETED"
     assert v_final.status == "COMPLETED"
-    print(f"  [OK] FINAL RESULT: Video {created_vid} COMPLETED (7/7) successfully!")
+    print(f"  [OK] FINAL RESULT: Video {created_vid} COMPLETED (6/6) successfully!")
 
     # Cleanup test final file
     if final_file.exists():

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block title %}Social Media Account Connections - AI Content Factory{% endblock %}
+{% block page_title %}Social Media Account Connections (7 Platforms){% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4 pb-3 border-bottom border-secondary-subtle">
+    <div>
+        <h5 class="text-white mb-1 fw-bold">Platform Authorization & Official API Integrations</h5>
+        <div class="text-secondary small">
+            Connect and verify official API credentials for automated multi-channel publishing. Secrets are stored securely in <code>.env</code> outside Git.
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-info btn-sm" id="btnTestAll" onclick="testAllConnections()">
+            <i class="bi bi-arrow-repeat me-1"></i> Test All Connections
+        </button>
+        <a href="/publishing" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i> Back to Publishing Queue
+        </a>
+    </div>
+</div>
+
+<div id="connAlert"></div>
+
+<div class="row g-4">
+    {% for c in connections %}
+    <div class="col-md-6 col-lg-4">
+        <div class="card border-secondary-subtle h-100 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center bg-dark py-3">
+                <span class="fw-bold text-white fs-6">
+                    {% if c.platform == 'facebook_page' %}<i class="bi bi-flag-fill text-primary me-2"></i>{% endif %}
+                    {% if c.platform == 'instagram' %}<i class="bi bi-instagram text-danger me-2"></i>{% endif %}
+                    {% if c.platform == 'tiktok' %}<i class="bi bi-tiktok text-light me-2"></i>{% endif %}
+                    {% if c.platform == 'threads' %}<i class="bi bi-threads text-light me-2"></i>{% endif %}
+                    {% if c.platform == 'youtube' %}<i class="bi bi-youtube text-danger me-2"></i>{% endif %}
+                    {% if c.platform == 'shopee' %}<i class="bi bi-bag-check-fill text-warning me-2"></i>{% endif %}
+                    {{ c.name }}
+                </span>
+                {% if c.requires_manual %}
+                <span class="badge bg-info-subtle text-info border border-info-subtle">Manual Required</span>
+                {% elif c.status == 'READY' %}
+                <span class="badge bg-success-subtle text-success border border-success-subtle">Connected</span>
+                {% elif c.status == 'FAILED' %}
+                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Failed</span>
+                {% else %}
+                <span class="badge bg-warning-subtle text-warning border border-warning-subtle">Not Connected</span>
+                {% endif %}
+            </div>
+
+            <div class="card-body d-flex flex-column">
+                <div class="mb-3">
+                    <div class="text-secondary small mb-1">Connected Account:</div>
+                    <div class="text-white fw-semibold small">
+                        {{ c.account_name or c.db_display_name or 'No account connected' }}
+                    </div>
+                    {% if c.account_id %}
+                    <div class="text-secondary small font-monospace">ID: {{ c.account_id }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="mb-3 small flex-grow-1">
+                    <div class="text-secondary mb-1">Integration Status:</div>
+                    <p class="text-light-emphasis small mb-0">{{ c.message }}</p>
+                    {% if c.last_error %}
+                    <div class="alert alert-danger p-2 small mt-2 mb-0">
+                        <strong>Error:</strong> {{ c.last_error }}
+                    </div>
+                    {% endif %}
+                </div>
+
+                <div class="border-top border-secondary-subtle pt-3 mt-auto">
+                    <div class="d-flex gap-2">
+                        {% if not c.requires_manual %}
+                        <button class="btn btn-sm btn-outline-info flex-fill" onclick="testSingleConnection('{{ c.platform }}', this)">
+                            <i class="bi bi-plug me-1"></i> Test Connection
+                        </button>
+                        {% else %}
+                        <button class="btn btn-sm btn-outline-secondary flex-fill" disabled>
+                            <i class="bi bi-info-circle me-1"></i> Official API N/A
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Environment Config Instructions -->
+<div class="card border-secondary-subtle mt-4 bg-dark">
+    <div class="card-header text-white fw-bold">
+        <i class="bi bi-key-fill text-warning me-2"></i>Security & Credentials Storage
+    </div>
+    <div class="card-body text-secondary small">
+        <p class="mb-2">
+            In compliance with security standards, all OAuth client IDs, client secrets, and access tokens are kept exclusively in the root <code>.env</code> file.
+            Tokens are NEVER displayed on screen or stored unencrypted in the database.
+        </p>
+        <div class="row g-2">
+            <div class="col-md-6">
+                <code>FACEBOOK_PAGE_ACCESS_TOKEN</code><br>
+                <code>FACEBOOK_PAGE_ID</code><br>
+                <code>INSTAGRAM_ACCESS_TOKEN</code><br>
+                <code>INSTAGRAM_ACCOUNT_ID</code>
+            </div>
+            <div class="col-md-6">
+                <code>TIKTOK_ACCESS_TOKEN</code><br>
+                <code>THREADS_ACCESS_TOKEN</code><br>
+                <code>YOUTUBE_ACCESS_TOKEN</code> / <code>YOUTUBE_API_KEY</code>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function testSingleConnection(platform, btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Checking...';
+        try {
+            const res = await fetch(`/api/publishing/test-connection/${platform}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                alert(`[${platform}] ${data.message}`);
+                location.reload();
+            } else {
+                alert(`[${platform}] Error: ${data.message || data.error || 'Connection failed'}`);
+            }
+        } catch (e) {
+            alert('Request error: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-plug me-1"></i> Test Connection';
+        }
+    }
+
+    async function testAllConnections() {
+        const btn = document.getElementById('btnTestAll');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Testing All...';
+        try {
+            const res = await fetch('/api/publishing/test-all-connections', { method: 'POST' });
+            const data = await res.json();
+            alert('Completed testing all 6 social connections.');
+            location.reload();
+        } catch (e) {
+            alert('Error testing connections: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Test All Connections';
+        }
+    }
+</script>
+{% endblock %}

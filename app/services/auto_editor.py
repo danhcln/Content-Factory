@@ -41,6 +41,20 @@ from app.services.gemini_service import GeminiService, GeminiQuotaExceededError
 logger = logging.getLogger("app.services.auto_editor")
 
 
+def validate_render_filter_graph(filter_complex: str) -> bool:
+    """
+    Validate that the FFmpeg filter complex string strictly enforces a single authoritative text path:
+    Each subtitle/text phrase must be rendered exactly once.
+    Rejects any configuration with duplicate subtitle filters or drawtext + subtitle conflicts.
+    """
+    sub_count = filter_complex.count("subtitles=") + filter_complex.count("ass=")
+    if sub_count > 1:
+        raise ValueError(f"Duplicate subtitle filters detected ({sub_count}) in filter_complex: {filter_complex}")
+    if sub_count >= 1 and "drawtext=" in filter_complex:
+        raise ValueError("Conflicting text overlay filters detected: both subtitle and drawtext filters are present")
+    return True
+
+
 class AutoEditorService:
     def __init__(self):
         self.gemini = GeminiService()
@@ -474,22 +488,26 @@ class AutoEditorService:
 
         last_v = "[v_cleaned]"
 
+        # Single authoritative text overlay path:
+        # If subtitles exist, burn them in once. Do NOT append secondary drawtext overlays.
         if srt_path and Path(srt_path).exists() and Path(srt_path).stat().st_size > 0:
             sub_path_obj = Path(srt_path)
             if sub_path_obj.suffix.lower() == ".ass":
                 sub_filter = SubtitleService.build_subtitle_filter(sub_path_obj)
             else:
-                sub_filter = SubtitleService.build_subtitle_filter(sub_path_obj, font_size=40, margin_v=280)
+                sub_filter = SubtitleService.build_subtitle_filter(sub_path_obj, font_size=42, margin_v=260)
             filter_steps.append(f"{last_v}{sub_filter}[v_subbed]")
             last_v = "[v_subbed]"
-
-        if hook_text:
+        elif hook_text:
+            # Standalone hook text only when no subtitles are present
             hook_filter = SubtitleService.build_hook_filter(hook_text, target_w, target_h, duration=2.5)
             if hook_filter:
                 filter_steps.append(f"{last_v}{hook_filter}[v_final]")
                 last_v = "[v_final]"
 
         video_filter_complex = ";".join(filter_steps)
+        # Pre-render verification: assert no duplicate text/subtitle filters exist
+        validate_render_filter_graph(video_filter_complex)
 
         cmd_inputs = ["-y", "-i", str(source_path)]
         audio_map = []

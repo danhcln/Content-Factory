@@ -445,19 +445,12 @@ PlayResY: 1920
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,{clean_font},{resolved_size},{pri_ass},&H000000FF,{out_ass},{back_ass},{is_bold},0,0,0,100,100,0,0,1,{outline_width:.1f},{shadow_depth:.1f},2,50,50,{margin_v},1
-Style: Hook,{clean_font},52,&H0000FFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3.0,2.0,8,60,60,320,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
         events: List[str] = []
-
-        if hook_text and hook_text.strip():
-            clean_hook = hook_text.replace("\n", " ").replace("\\", "").strip()
-            hook_start = format_ass_timestamp(0.0)
-            hook_end = format_ass_timestamp(2.5)
-            events.append(f"Dialogue: 1,{hook_start},{hook_end},Hook,,0,0,0,,{{\\fad(150,150)}}{clean_hook}")
 
         timed_phrases = generate_timed_phrases(segments)
 
@@ -542,11 +535,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         y_pos = int(video_height * 0.18)
         font_size = 46
+        font_file_arg = ""
+        win_font = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts" / "arial.ttf"
+        if win_font.exists():
+            font_path = win_font.as_posix().replace(":", r"\:")
+            font_file_arg = f":fontfile='{font_path}'"
 
         return (
-            f"drawtext=text='{clean_text}':"
-            f"fontsize={font_size}:fontcolor=yellow:"
-            f"borderw=3:bordercolor=black:"
+            f"drawtext=text='{clean_text}'{font_file_arg}:"
+            f"fontsize={font_size}:fontcolor=white:"
+            f"borderw=2:bordercolor=black:"
             f"x=(w-text_w)/2:y={y_pos}:"
             f"enable='between(t,0,{duration:.1f})'"
         )

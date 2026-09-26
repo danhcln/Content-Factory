@@ -21,7 +21,9 @@ test_files = [
     "test_phase12_auto_editor.py",
     "test_vieneu_real.py",
     "test_gemini_status_ui.py",
-    "test_phase12_batch_auto_editor.py"
+    "test_phase12_batch_auto_editor.py",
+    "test_subtitle_hardening.py",
+    "test_publishing_service.py"
 ]
 
 def run_regression():

@@ -43,6 +43,12 @@ class TestPhase12BatchAutoEditor(unittest.TestCase):
         cls.v1_src = ORIGINAL_DIR / f"{cls.v1_id}.mp4"
         cls.v2_src = ORIGINAL_DIR / f"{cls.v2_id}.mp4"
 
+        # Ensure V0095 and V0096 exist for testing
+        if not cls.v1_src.exists():
+            candidates = list(ORIGINAL_DIR.glob("*.mp4")) + list(FINAL_DIR.glob("*.mp4"))
+            if candidates:
+                shutil.copy2(candidates[0], cls.v1_src)
+
         # Make sure V0096 exists as local file copy of V0095
         if cls.v1_src.exists() and not cls.v2_src.exists():
             shutil.copy2(cls.v1_src, cls.v2_src)

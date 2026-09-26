@@ -1,248 +1,372 @@
 {% extends "base.html" %}
 
-{% block title %}Publishing Queue - AI Content Factory{% endblock %}
-{% block page_title %}Hàng Đợi Đăng Bài (Publishing Queue - 7 Nền Tảng){% endblock %}
+{% block title %}Social Publishing Dashboard - AI Content Factory{% endblock %}
+{% block page_title %}Social Media Publishing Dashboard (7 Platforms){% endblock %}
+
+{% block extra_head %}
+<style>
+    .platform-badge-published {
+        background-color: rgba(25, 135, 84, 0.2);
+        color: #75b798;
+        border: 1px solid rgba(25, 135, 84, 0.4);
+    }
+    .platform-badge-failed {
+        background-color: rgba(220, 53, 69, 0.2);
+        color: #ea868f;
+        border: 1px solid rgba(220, 53, 69, 0.4);
+    }
+    .platform-badge-manual {
+        background-color: rgba(13, 202, 240, 0.15);
+        color: #6edff6;
+        border: 1px solid rgba(13, 202, 240, 0.3);
+    }
+    .platform-badge-not-connected {
+        background-color: rgba(255, 193, 7, 0.15);
+        color: #ffda6a;
+        border: 1px solid rgba(255, 193, 7, 0.3);
+    }
+    .platform-card {
+        transition: transform 0.15s, border-color 0.15s;
+    }
+    .platform-card:hover {
+        border-color: #0dcaf0 !important;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-12">
-        {% if videos %}
-        <div class="d-flex flex-column gap-4">
-            {% for v in videos %}
-            {% set pub = v.publishing %}
-            {% set c = v.content %}
-            <div class="card border-secondary-subtle" id="card-{{ v.video_id }}">
-                <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-3 bg-dark">
-                    <div class="d-flex align-items-center gap-3">
-                        <span class="fs-5 fw-bold text-white">{{ v.video_id }}</span>
-                        <span class="text-secondary">|</span>
-                        <span class="fw-semibold text-info">{{ v.product.name_vietnamese if v.product else 'Sản phẩm' }}</span>
-                        <span class="badge badge-status status-{{ pub.status if pub else 'NOT PUBLISHED' }}" id="badge-{{ v.video_id }}">
-                            {{ pub.status if pub else 'NOT PUBLISHED' }}
-                        </span>
-                        <span class="badge bg-primary-subtle text-primary" id="count-{{ v.video_id }}">
-                            {{ pub.published_count if pub else 0 }}/7
-                        </span>
-                    </div>
-                    <div>
-                        <button class="btn btn-sm btn-outline-info btn-open-final" data-id="{{ v.video_id }}">
-                            <i class="bi bi-play-btn me-1"></i> OPEN FINAL VIDEO
-                        </button>
+<!-- Top Controls & Connections Summary -->
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4 pb-3 border-bottom border-secondary-subtle">
+    <div>
+        <h5 class="text-white mb-1 fw-bold">Automated Multi-Platform Distribution</h5>
+        <div class="text-secondary small">
+            Publish finalized 9:16 videos to Facebook, Instagram, TikTok, Threads, and YouTube Shorts with official APIs, plus Shopee & Facebook Personal manual fallback.
+        </div>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="/social-connections" class="btn btn-outline-info btn-sm">
+            <i class="bi bi-shield-lock me-1"></i> Manage Connections (7 Platforms)
+        </a>
+    </div>
+</div>
+
+<div id="globalPublishAlert"></div>
+
+{% if videos %}
+<div class="d-flex flex-column gap-4">
+    {% for v in videos %}
+    {% set pub = v.publishing %}
+    {% set c = v.content %}
+    <div class="card border-secondary-subtle shadow-sm" id="card-{{ v.video_id }}">
+        <!-- Video Header Bar -->
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2 py-3 bg-dark">
+            <div class="d-flex align-items-center gap-3">
+                <span class="fs-5 fw-bold text-white">{{ v.video_id }}</span>
+                <span class="text-secondary">|</span>
+                <span class="fw-semibold text-info">{{ v.product.name_vietnamese if v.product else 'Sản phẩm' }}</span>
+                <span class="badge bg-secondary" id="badge-{{ v.video_id }}">{{ pub.status or pub.publish_status or 'NOT PUBLISHED' }}</span>
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle" id="count-{{ v.video_id }}">
+                    {{ pub.published_count if pub else 0 }}/6 Platforms
+                </span>
+            </div>
+            <div class="d-flex gap-2 align-items-center">
+                <button class="btn btn-sm btn-outline-secondary" onclick="openFinalVideo('{{ v.video_id }}')">
+                    <i class="bi bi-play-circle me-1"></i> Preview MP4
+                </button>
+                <button class="btn btn-sm btn-outline-light" onclick="viewPublishLog('{{ v.video_id }}')">
+                    <i class="bi bi-journal-text me-1"></i> View Log
+                </button>
+                <button class="btn btn-sm btn-success px-3 fw-semibold" id="btnPublishAll-{{ v.video_id }}" onclick="publishToAll('{{ v.video_id }}')">
+                    <i class="bi bi-send-check-fill me-1"></i> PUBLISH TO ALL
+                </button>
+            </div>
+        </div>
+
+        <div class="card-body">
+            <!-- Publishing Grid for 7 Platforms -->
+            <div class="row g-3 mb-4">
+                <!-- 1. Facebook Page -->
+                <div class="col-md-6 col-lg-4">
+                    <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column platform-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-white"><i class="bi bi-flag-fill text-primary me-1"></i> Facebook Page</span>
+                            {% if pub and pub.facebook_page %}
+                            <span class="badge platform-badge-published"><i class="bi bi-check-circle me-1"></i>Published</span>
+                            {% else %}
+                            <span class="badge platform-badge-not-connected" id="status-badge-{{ v.video_id }}-facebook_page">Ready / Pending</span>
+                            {% endif %}
+                        </div>
+                        <div class="small text-secondary mb-3 flex-grow-1" style="white-space: pre-wrap;" id="fb_page_text_{{ v.video_id }}">{{ c.facebook_page_caption if c else 'Chưa tạo caption' }}&#10;&#10;{{ c.facebook_page_hashtags if c else '' }}</div>
+                        <div class="d-flex gap-2 mt-auto">
+                            <button class="btn btn-sm btn-outline-primary flex-fill" onclick="retryPlatform('{{ v.video_id }}', 'facebook_page')">
+                                <i class="bi bi-send me-1"></i> Publish
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="copyFromElement('fb_page_text_{{ v.video_id }}', this)">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="card-body">
-                    {% if c %}
-                    <div class="row g-3">
-                        <!-- 1. Facebook Personal -->
-                        <div class="col-md-6 col-lg-4">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold text-white"><i class="bi bi-person-circle text-primary me-1"></i> FB Cá Nhân</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="facebook_personal" {% if pub and pub.facebook_personal %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="small text-secondary mb-2 flex-grow-1" style="white-space: pre-wrap;" id="fb_pers_text_{{ v.video_id }}">{{ c.facebook_personal_caption }}&#10;&#10;{{ c.facebook_personal_hashtags }}</div>
-                                <button class="btn btn-sm btn-outline-secondary w-100" onclick="copyFromElement('fb_pers_text_{{ v.video_id }}', this)">
-                                    <i class="bi bi-clipboard me-1"></i> COPY CAPTION
-                                </button>
-                            </div>
+                <!-- 2. Instagram Reels -->
+                <div class="col-md-6 col-lg-4">
+                    <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column platform-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-white"><i class="bi bi-instagram text-danger me-1"></i> Instagram Reels</span>
+                            {% if pub and pub.instagram %}
+                            <span class="badge platform-badge-published"><i class="bi bi-check-circle me-1"></i>Published</span>
+                            {% else %}
+                            <span class="badge platform-badge-not-connected" id="status-badge-{{ v.video_id }}-instagram">Ready / Pending</span>
+                            {% endif %}
                         </div>
-
-                        <!-- 2. Facebook Page -->
-                        <div class="col-md-6 col-lg-4">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold text-white"><i class="bi bi-flag-fill text-primary me-1"></i> FB Page</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="facebook_page" {% if pub and pub.facebook_page %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="small text-secondary mb-2 flex-grow-1" style="white-space: pre-wrap;" id="fb_page_text_{{ v.video_id }}">{{ c.facebook_page_caption }}&#10;&#10;{{ c.facebook_page_hashtags }}</div>
-                                <button class="btn btn-sm btn-outline-secondary w-100" onclick="copyFromElement('fb_page_text_{{ v.video_id }}', this)">
-                                    <i class="bi bi-clipboard me-1"></i> COPY CAPTION
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 3. TikTok -->
-                        <div class="col-md-6 col-lg-4">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold text-white"><i class="bi bi-tiktok text-light me-1"></i> TikTok</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="tiktok" {% if pub and pub.tiktok %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="small text-secondary mb-2 flex-grow-1" style="white-space: pre-wrap;" id="tiktok_text_{{ v.video_id }}">{{ c.tiktok_caption }}&#10;&#10;{{ c.tiktok_hashtags }}</div>
-                                <button class="btn btn-sm btn-outline-secondary w-100" onclick="copyFromElement('tiktok_text_{{ v.video_id }}', this)">
-                                    <i class="bi bi-clipboard me-1"></i> COPY CAPTION
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 4. Threads -->
-                        <div class="col-md-6 col-lg-4">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold text-white"><i class="bi bi-threads text-light me-1"></i> Threads</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="threads" {% if pub and pub.threads %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="small text-secondary mb-2 flex-grow-1" style="white-space: pre-wrap;" id="threads_text_{{ v.video_id }}">{{ c.threads_caption }}&#10;&#10;{{ c.threads_hashtags }}</div>
-                                <button class="btn btn-sm btn-outline-secondary w-100" onclick="copyFromElement('threads_text_{{ v.video_id }}', this)">
-                                    <i class="bi bi-clipboard me-1"></i> COPY CAPTION
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 5. Instagram -->
-                        <div class="col-md-6 col-lg-4">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold text-white"><i class="bi bi-instagram text-danger me-1"></i> Instagram</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="instagram" {% if pub and pub.instagram %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="small text-secondary mb-2 flex-grow-1" style="white-space: pre-wrap;" id="insta_text_{{ v.video_id }}">{{ c.instagram_caption }}&#10;&#10;{{ c.instagram_hashtags }}</div>
-                                <button class="btn btn-sm btn-outline-secondary w-100" onclick="copyFromElement('insta_text_{{ v.video_id }}', this)">
-                                    <i class="bi bi-clipboard me-1"></i> COPY CAPTION
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 6. Shopee Video -->
-                        <div class="col-md-6 col-lg-4">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="fw-bold text-white"><i class="bi bi-bag-check-fill text-warning me-1"></i> Shopee Video</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="shopee" {% if pub and pub.shopee %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="small text-secondary mb-2 flex-grow-1" style="white-space: pre-wrap;" id="shopee_text_{{ v.video_id }}">{{ c.shopee_caption }}&#10;&#10;{{ c.shopee_hashtags }}</div>
-                                <button class="btn btn-sm btn-outline-secondary w-100" onclick="copyFromElement('shopee_text_{{ v.video_id }}', this)">
-                                    <i class="bi bi-clipboard me-1"></i> COPY CAPTION
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 7. YouTube Shorts -->
-                        <div class="col-12">
-                            <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <span class="fw-bold text-white"><i class="bi bi-youtube text-danger me-1"></i> YouTube Shorts</span>
-                                    <div class="form-check form-switch m-0">
-                                        <input class="form-check-input plat-toggle" type="checkbox" data-vid="{{ v.video_id }}" data-plat="youtube" {% if pub and pub.youtube %}checked{% endif %}>
-                                    </div>
-                                </div>
-                                <div class="row g-2">
-                                    <div class="col-md-6">
-                                        <label class="form-label small text-secondary">Title:</label>
-                                        <div class="d-flex gap-2">
-                                            <input type="text" class="form-control form-control-sm" id="yt_title_{{ v.video_id }}" value="{{ c.youtube_title or '' }}" readonly>
-                                            <button class="btn btn-sm btn-outline-secondary text-nowrap" onclick="copyFromInput('yt_title_{{ v.video_id }}', this)">
-                                                <i class="bi bi-clipboard"></i> TITLE
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label class="form-label small text-secondary">Description & Hashtags:</label>
-                                        <div class="d-flex gap-2">
-                                            <input type="text" class="form-control form-control-sm" id="yt_desc_{{ v.video_id }}" value="{{ c.youtube_description or '' }} {{ c.youtube_hashtags or '' }}" readonly>
-                                            <button class="btn btn-sm btn-outline-secondary text-nowrap" onclick="copyFromInput('yt_desc_{{ v.video_id }}', this)">
-                                                <i class="bi bi-clipboard"></i> DESC
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                        <div class="small text-secondary mb-3 flex-grow-1" style="white-space: pre-wrap;" id="insta_text_{{ v.video_id }}">{{ c.instagram_caption if c else 'Chưa tạo caption' }}&#10;&#10;{{ c.instagram_hashtags if c else '' }}</div>
+                        <div class="d-flex gap-2 mt-auto">
+                            <button class="btn btn-sm btn-outline-danger flex-fill" onclick="retryPlatform('{{ v.video_id }}', 'instagram')">
+                                <i class="bi bi-send me-1"></i> Publish
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="copyFromElement('insta_text_{{ v.video_id }}', this)">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
                         </div>
                     </div>
-                    {% else %}
-                    <div class="text-secondary small">
-                        Chưa có nội dung cho video này. Hãy xuất video vào thư mục final để hệ thống tự động tạo nội dung.
+                </div>
+
+                <!-- 3. TikTok -->
+                <div class="col-md-6 col-lg-4">
+                    <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column platform-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-white"><i class="bi bi-tiktok text-light me-1"></i> TikTok</span>
+                            {% if pub and pub.tiktok %}
+                            <span class="badge platform-badge-published"><i class="bi bi-check-circle me-1"></i>Published</span>
+                            {% else %}
+                            <span class="badge platform-badge-not-connected" id="status-badge-{{ v.video_id }}-tiktok">Ready / Pending</span>
+                            {% endif %}
+                        </div>
+                        <div class="small text-secondary mb-3 flex-grow-1" style="white-space: pre-wrap;" id="tiktok_text_{{ v.video_id }}">{{ c.tiktok_caption if c else 'Chưa tạo caption' }}&#10;&#10;{{ c.tiktok_hashtags if c else '' }}</div>
+                        <div class="d-flex gap-2 mt-auto">
+                            <button class="btn btn-sm btn-outline-light flex-fill" onclick="retryPlatform('{{ v.video_id }}', 'tiktok')">
+                                <i class="bi bi-send me-1"></i> Publish
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="copyFromElement('tiktok_text_{{ v.video_id }}', this)">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
                     </div>
-                    {% endif %}
+                </div>
+
+                <!-- 4. Threads -->
+                <div class="col-md-6 col-lg-4">
+                    <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column platform-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-white"><i class="bi bi-threads text-light me-1"></i> Threads</span>
+                            {% if pub and pub.threads %}
+                            <span class="badge platform-badge-published"><i class="bi bi-check-circle me-1"></i>Published</span>
+                            {% else %}
+                            <span class="badge platform-badge-not-connected" id="status-badge-{{ v.video_id }}-threads">Ready / Pending</span>
+                            {% endif %}
+                        </div>
+                        <div class="small text-secondary mb-3 flex-grow-1" style="white-space: pre-wrap;" id="threads_text_{{ v.video_id }}">{{ c.threads_caption if c else 'Chưa tạo caption' }}&#10;&#10;{{ c.threads_hashtags if c else '' }}</div>
+                        <div class="d-flex gap-2 mt-auto">
+                            <button class="btn btn-sm btn-outline-light flex-fill" onclick="retryPlatform('{{ v.video_id }}', 'threads')">
+                                <i class="bi bi-send me-1"></i> Publish
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="copyFromElement('threads_text_{{ v.video_id }}', this)">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. YouTube Shorts -->
+                <div class="col-md-6 col-lg-4">
+                    <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column platform-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-white"><i class="bi bi-youtube text-danger me-1"></i> YouTube Shorts</span>
+                            {% if pub and pub.youtube %}
+                            <span class="badge platform-badge-published"><i class="bi bi-check-circle me-1"></i>Published</span>
+                            {% else %}
+                            <span class="badge platform-badge-not-connected" id="status-badge-{{ v.video_id }}-youtube">Ready / Pending</span>
+                            {% endif %}
+                        </div>
+                        <div class="small text-secondary mb-1">Title: <strong class="text-white">{{ c.youtube_title if c else v.video_id }}</strong></div>
+                        <div class="small text-secondary mb-3 flex-grow-1" style="white-space: pre-wrap;" id="yt_desc_{{ v.video_id }}">{{ c.youtube_description if c else '' }}&#10;&#10;{{ c.youtube_hashtags if c else '' }}</div>
+                        <div class="d-flex gap-2 mt-auto">
+                            <button class="btn btn-sm btn-outline-danger flex-fill" onclick="retryPlatform('{{ v.video_id }}', 'youtube')">
+                                <i class="bi bi-send me-1"></i> Upload
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="copyFromElement('yt_desc_{{ v.video_id }}', this)">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 6. Shopee Video (Manual Required) -->
+                <div class="col-md-6 col-lg-4">
+                    <div class="p-3 rounded bg-dark-subtle border border-secondary-subtle h-100 d-flex flex-column platform-card">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-bold text-white"><i class="bi bi-bag-check-fill text-warning me-1"></i> Shopee Video</span>
+                            <span class="badge platform-badge-manual"><i class="bi bi-hand-index-thumb me-1"></i>Manual Required</span>
+                        </div>
+                        <div class="small text-secondary mb-3 flex-grow-1" style="white-space: pre-wrap;" id="shopee_text_{{ v.video_id }}">{{ c.shopee_caption if c else '' }}&#10;&#10;{{ c.shopee_hashtags if c else '' }}</div>
+                        <div class="d-flex gap-2 mt-auto">
+                            <a href="https://creator.shopee.vn/" target="_blank" class="btn btn-sm btn-outline-warning flex-fill">
+                                <i class="bi bi-box-arrow-up-right me-1"></i> Open Shopee
+                            </a>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="copyFromElement('shopee_text_{{ v.video_id }}', this)">
+                                <i class="bi bi-clipboard me-1"></i> Copy
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
-            {% endfor %}
+
+            <!-- Scheduling Control Bar -->
+            <div class="p-3 rounded bg-dark border border-secondary-subtle d-flex flex-wrap justify-content-between align-items-center gap-3">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-calendar-event text-info"></i>
+                    <span class="text-white small fw-semibold">Publishing Schedule:</span>
+                    <input type="datetime-local" class="form-control form-control-sm bg-dark text-white border-secondary" id="schedInput-{{ v.video_id }}" value="{{ pub.scheduled_at.isoformat() if pub and pub.scheduled_at else '' }}">
+                    <button class="btn btn-sm btn-outline-info" onclick="saveSchedule('{{ v.video_id }}')">
+                        <i class="bi bi-clock-history me-1"></i> Set Schedule
+                    </button>
+                </div>
+                <div class="text-secondary small">
+                    Last Published: <span class="text-white">{{ pub.published_at.strftime('%Y-%m-%d %H:%M:%S UTC') if pub and pub.published_at else 'Not yet' }}</span>
+                </div>
+            </div>
         </div>
-        {% else %}
-        <div class="card p-5 text-center text-secondary">
-            <i class="bi bi-send-check fs-1 d-block mb-3"></i>
-            Chưa có video nào sẵn sàng đăng bài (CONTENT_READY).
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card border-secondary-subtle p-5 text-center">
+    <i class="bi bi-film fs-1 text-secondary mb-3"></i>
+    <h5 class="text-white">No Final Videos Ready in Publishing Queue</h5>
+    <p class="text-secondary small mb-3">Generate or approve video auto edits in the Auto Edit workspace to publish across platforms.</p>
+    <div>
+        <a href="/auto-edit" class="btn btn-primary btn-sm">Go to Auto Edit Workspace</a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Log Modal -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content bg-dark border-secondary">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title text-white"><i class="bi bi-journal-code text-info me-2"></i>Publishing Report Log</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre class="bg-black p-3 rounded text-info small" id="logModalContent" style="max-height: 400px; overflow-y: auto;"></pre>
+            </div>
         </div>
-        {% endif %}
     </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-    function copyFromElement(elementId, btn) {
-        const text = document.getElementById(elementId)?.innerText || "";
-        window.copyText(text, btn);
+    function copyFromElement(elId, btn) {
+        const text = document.getElementById(elId).innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check2 text-success me-1"></i> Copied!';
+            setTimeout(() => btn.innerHTML = original, 1800);
+        });
     }
 
-    function copyFromInput(inputId, btn) {
-        const text = document.getElementById(inputId)?.value || "";
-        window.copyText(text, btn);
+    async function openFinalVideo(videoId) {
+        try {
+            const res = await fetch(`/api/publishing/open-final/${videoId}`);
+            const data = await res.json();
+            if (!data.success) {
+                alert(data.error || 'Failed to open final video');
+            }
+        } catch (e) {
+            alert('Error opening video: ' + e.message);
+        }
     }
 
-    // Open final video
-    document.querySelectorAll('.btn-open-final').forEach(btn => {
-        btn.addEventListener('click', async function() {
-            const vid = this.dataset.id;
-            try {
-                const res = await fetch(`/api/publishing/open-final/${vid}`);
-                const data = await res.json();
-                if (!data.success) {
-                    alert('Lỗi: ' + data.error);
-                }
-            } catch (e) {
-                alert('Lỗi kết nối: ' + e.message);
+    async function publishToAll(videoId) {
+        const btn = document.getElementById(`btnPublishAll-${videoId}`);
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Publishing...';
+
+        try {
+            const res = await fetch(`/api/publishing/publish-all/${videoId}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('globalPublishAlert').innerHTML = `
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <strong>Publish Completed:</strong> ${data.published_count} platforms published successfully!
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>`;
+                document.getElementById(`count-${videoId}`).innerText = `${data.published_count}/6 Platforms`;
+                document.getElementById(`badge-${videoId}`).innerText = data.publish_status;
+            } else {
+                document.getElementById('globalPublishAlert').innerHTML = `
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <strong>Publish Failed:</strong> ${data.error || 'Unknown error'}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>`;
             }
-        });
-    });
+        } catch (e) {
+            alert('Publishing request error: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-send-check-fill me-1"></i> PUBLISH TO ALL';
+        }
+    }
 
-    // Toggle platform checkbox
-    document.querySelectorAll('.plat-toggle').forEach(chk => {
-        chk.addEventListener('change', async function() {
-            const vid = this.dataset.vid;
-            const plat = this.dataset.plat;
-            const posted = this.checked;
-
-            try {
-                const res = await fetch(`/api/publishing/toggle/${vid}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ platform: plat, posted: posted })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    // Update counter
-                    const cntBadge = document.getElementById(`count-${vid}`);
-                    if (cntBadge) cntBadge.innerText = `${data.published_count}/7`;
-
-                    // Update status badge
-                    const stBadge = document.getElementById(`badge-${vid}`);
-                    if (stBadge) {
-                        stBadge.innerText = data.status;
-                        stBadge.className = `badge badge-status status-${data.status}`;
-                    }
-                } else {
-                    alert('Lỗi: ' + data.error);
-                    this.checked = !posted;
-                }
-            } catch (e) {
-                alert('Lỗi kết nối: ' + e.message);
-                this.checked = !posted;
+    async function retryPlatform(videoId, platform) {
+        try {
+            const res = await fetch(`/api/publishing/retry/${videoId}/${platform}`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                alert(`Successfully published to ${platform}! Post ID: ${data.post_id || 'OK'}`);
+                location.reload();
+            } else {
+                alert(`Platform ${platform}: ${data.message || data.error || 'Operation failed'}`);
             }
-        });
-    });
+        } catch (e) {
+            alert('Retry error: ' + e.message);
+        }
+    }
+
+    async function saveSchedule(videoId) {
+        const val = document.getElementById(`schedInput-${videoId}`).value;
+        try {
+            const res = await fetch(`/api/publishing/schedule/${videoId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scheduled_at: val || null })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('Schedule saved successfully!');
+            } else {
+                alert('Schedule error: ' + data.error);
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+    }
+
+    function viewPublishLog(videoId) {
+        document.getElementById('logModalContent').innerText = `Loading publish report for ${videoId}...`;
+        const modal = new bootstrap.Modal(document.getElementById('logModal'));
+        modal.show();
+
+        fetch(`/api/publishing/connections`)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('logModalContent').innerText = JSON.stringify(data, null, 2);
+            })
+            .catch(e => {
+                document.getElementById('logModalContent').innerText = 'Failed to load log: ' + e.message;
+            });
+    }
 </script>
 {% endblock %}

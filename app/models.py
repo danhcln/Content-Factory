@@ -122,7 +122,33 @@ class Publishing(Base):
     publish_date = Column(DateTime, nullable=True)
     notes = Column(Text, nullable=True)
 
+    # Automated publishing and scheduling fields
+    scheduled_at = Column(DateTime, nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    publish_status = Column(String(64), default="NOT_PUBLISHED", index=True)
+    platform_post_id = Column(Text, nullable=True)  # JSON-encoded map of platform -> post_id / URL
+    error_message = Column(Text, nullable=True)
+
     video = relationship("Video", back_populates="publishing")
+
+
+class SocialAccount(Base):
+    """
+    Connected social media accounts metadata.
+    Sensitive access tokens and client secrets are NEVER stored in plaintext in SQLite;
+    they are kept securely in environment variables / .env configuration.
+    """
+    __tablename__ = "social_accounts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform = Column(String(64), unique=True, nullable=False, index=True)
+    display_name = Column(String(255), nullable=True)
+    account_id = Column(String(255), nullable=True)
+    is_connected = Column(Boolean, default=False)
+    status = Column(String(64), default="NOT_CONNECTED")  # READY, NOT_CONNECTED, MANUAL_REQUIRED, FAILED
+    last_checked_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
 
 
 class Setting(Base):
@@ -132,3 +158,4 @@ class Setting(Base):
     key = Column(String(128), unique=True, nullable=False, index=True)
     value = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
+
