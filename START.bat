@@ -16,12 +16,14 @@ if %errorlevel% equ 0 (
     exit /b 0
 )
 
-:: Locate Python executable (.venv_vieneu_new preferred)
+:: Locate Python executable (.venv_vieneu_new preferred for VieNeu, .venv for standard app)
 set PYTHON_EXE=
 if exist ".venv_vieneu_new\Scripts\python.exe" (
     set "PYTHON_EXE=.venv_vieneu_new\Scripts\python.exe"
 ) else if exist ".venv_vieneu\Scripts\python.exe" (
     set "PYTHON_EXE=.venv_vieneu\Scripts\python.exe"
+) else if exist ".venv\Scripts\python.exe" (
+    set "PYTHON_EXE=.venv\Scripts\python.exe"
 ) else (
     where python >nul 2>&1
     if %errorlevel% equ 0 (
@@ -31,7 +33,7 @@ if exist ".venv_vieneu_new\Scripts\python.exe" (
 
 if "%PYTHON_EXE%"=="" (
     echo [ERROR] Python environment not found!
-    echo Please make sure .venv_vieneu_new exists or Python is installed in PATH.
+    echo Please make sure .venv or .venv_vieneu_new exists or Python is installed in PATH.
     echo.
     pause
     exit /b 1

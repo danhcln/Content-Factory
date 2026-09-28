@@ -144,7 +144,7 @@ YÊU CẦU QUAN TRỌNG:
         raw_script = ""
         try:
             gemini = GeminiService()
-            raw_script = gemini.call_gemini(prompt, db=db, timeout=60.0, max_retries=max_retries)
+            raw_script = gemini.call_gemini(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
         except GeminiQuotaExceededError as qe:
             logger.error(f"Gemini daily quota exceeded during script generation for {video_id}: {qe}")
             video.status = "GEMINI_QUOTA_EXCEEDED"

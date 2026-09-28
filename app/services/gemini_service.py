@@ -25,14 +25,161 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-class GeminiQuotaExceededError(RuntimeError):
+class GeminiAPIError(RuntimeError):
+    """Base exception for all Gemini API errors, maintaining full RuntimeError compatibility."""
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+        upstream_message: str = "",
+        model_name: str = ""
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.upstream_message = upstream_message
+        self.model_name = model_name
+
+
+class GeminiQuotaExceededError(GeminiAPIError):
     """Raised when Gemini returns daily quota exhaustion. Must NOT be retried."""
     pass
 
 
-class GeminiRateLimitError(RuntimeError):
+class GeminiRateLimitError(GeminiAPIError):
     """Raised when Gemini returns temporary burst rate limit (per-minute)."""
     pass
+
+
+class GeminiBadRequestError(GeminiAPIError):
+    """HTTP 400 Bad Request."""
+    pass
+
+
+class GeminiAuthError(GeminiAPIError):
+    """HTTP 401 Unauthorized / Invalid API Key."""
+    pass
+
+
+class GeminiPermissionError(GeminiAPIError):
+    """HTTP 403 Forbidden / Permission Denied."""
+    pass
+
+
+class GeminiModelNotFoundError(GeminiAPIError):
+    """HTTP 404 Model Not Found."""
+    pass
+
+
+class GeminiInternalServerError(GeminiAPIError):
+    """HTTP 500 Google Internal Server Error."""
+    pass
+
+
+class GeminiServiceUnavailableError(GeminiAPIError):
+    """HTTP 503 / 500+ Temporary Google Service Unavailable / High Demand."""
+    pass
+
+
+class GeminiTimeoutError(GeminiAPIError):
+    """Request timeout."""
+    pass
+
+
+class GeminiNetworkError(GeminiAPIError):
+    """Network connection failure."""
+    pass
+
+
+def sanitize_error_message(msg: str, api_key: Optional[str] = None) -> str:
+    """Ensure no API keys, auth headers, or raw tokens appear in any error string."""
+    if not msg:
+        return ""
+    clean = str(msg)
+    if api_key and isinstance(api_key, str) and len(api_key) > 5:
+        clean = clean.replace(api_key, "[REDACTED]")
+    clean = re.sub(r"key=[A-Za-z0-9_\-\.]{10,}", "key=[REDACTED]", clean)
+    clean = re.sub(r"x-goog-api-key['\":\s]+[A-Za-z0-9_\-\.]{10,}", "x-goog-api-key: [REDACTED]", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"Bearer\s+[A-Za-z0-9_\-\.]{10,}", "Bearer [REDACTED]", clean, flags=re.IGNORECASE)
+    return clean.strip()
+
+
+# In-memory cache for available generation models
+_MODEL_CATALOG_CACHE: Dict[str, Any] = {
+    "models": [],
+    "cached_at": 0.0,
+    "ttl": 3600.0  # 1 hour TTL
+}
+
+# Candidate fallback models in order of priority (stable text/content generation models)
+FALLBACK_CANDIDATE_PRIORITY: List[str] = [
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite"
+]
+
+
+def discover_available_models(api_key: str, timeout: float = 10.0) -> List[str]:
+    """
+    Discover models supporting generateContent from Google API, cached for 1 hour.
+    Does NOT call models.list before every request; called ONLY when fallback is needed.
+    Failure to list models returns empty list without raising exception.
+    """
+    now = time.time()
+    if _MODEL_CATALOG_CACHE["models"] and (now - _MODEL_CATALOG_CACHE["cached_at"] < _MODEL_CATALOG_CACHE["ttl"]):
+        return _MODEL_CATALOG_CACHE["models"]
+
+    if not api_key:
+        return []
+
+    try:
+        url = "https://generativelanguage.googleapis.com/v1beta/models"
+        headers = {"x-goog-api-key": api_key}
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                models_list = data.get("models", [])
+                valid_models = []
+                for m in models_list:
+                    name = m.get("name", "")
+                    if name.startswith("models/"):
+                        name = name[7:]
+                    methods = m.get("supportedGenerationMethods", [])
+                    if "generateContent" in methods:
+                        # Exclude specialized non-text models
+                        lower = name.lower()
+                        if not any(bad in lower for bad in ["tts", "image", "live", "audio", "embed", "veo", "lyria"]):
+                            valid_models.append(name)
+
+                if valid_models:
+                    _MODEL_CATALOG_CACHE["models"] = valid_models
+                    _MODEL_CATALOG_CACHE["cached_at"] = now
+                    return valid_models
+    except Exception as e:
+        logger.warning(f"Failed to query Gemini model catalog for fallback: {sanitize_error_message(str(e), api_key)}")
+
+    return []
+
+
+def select_fallback_model(primary_model: str, api_key: str) -> Optional[str]:
+    """
+    Select an appropriate fallback model supporting generateContent.
+    Prioritizes verified available models from Google catalog, falls back to static candidate priority list.
+    """
+    available = discover_available_models(api_key)
+    # Match candidate in priority order
+    for candidate in FALLBACK_CANDIDATE_PRIORITY:
+        if candidate != primary_model and (candidate in available or f"models/{candidate}" in available):
+            return candidate
+
+    # If discovery was empty/unavailable, choose first static candidate different from primary
+    for candidate in FALLBACK_CANDIDATE_PRIORITY:
+        if candidate != primary_model:
+            return candidate
+
+    return None
 
 
 def get_api_key(db: Optional[Session] = None) -> str:
@@ -253,38 +400,27 @@ def validate_rewritten_segments(
 
 class GeminiService:
     def __init__(self):
-        pass
+        self.last_execution: Dict[str, Any] = {
+            "primary_model": None,
+            "actual_model_used": None,
+            "fallback_used": False,
+            "primary_failure": None,
+            "primary_error": None
+        }
 
-    def call_gemini(
+    def _execute_single_model_call(
         self,
+        model_name: str,
         prompt: str,
+        api_key: str,
         db: Optional[Session] = None,
         timeout: float = 60.0,
-        max_retries: int = 2
+        max_retries: int = 2,
+        is_fallback: bool = False
     ) -> str:
         """
-        Production-grade Gemini API caller using configured GEMINI_MODEL.
-        Features:
-        - Strict low request consumption: No retries on Daily Quota exhaustion
-        - Discriminates 429 Daily Quota vs 429 Temporary Rate Limit
-        - Fast-fails with GeminiQuotaExceededError on daily quota
-        - Records lightweight local usage statistics in SQLite
-        - Updates GeminiStatusTracker for UI badge (no extra quota consumed)
-        - Masks API key from logs and errors
-        - 503 exponential backoff: attempt1→2s, attempt2→5s, then fail
+        Execute call to a single model with bounded exponential backoff for 503 / 500+ and transient 429.
         """
-        api_key = get_api_key(db)
-        model_name = get_model_name(db)
-
-        if not api_key:
-            GeminiStatusTracker.update_status("AUTH_ERROR", db=db, http_code=401)
-            raise ValueError("Gemini API key is not configured. Please enter your API key in Settings.")
-
-        # Record start of request in local tracker
-        GeminiUsageTracker.record_request_start(db=db)
-        # Signal that a real request is now in-flight (local only, no network)
-        GeminiStatusTracker.update_status("CHECKING", db=db)
-
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
         payload = {
             "contents": [
@@ -300,7 +436,6 @@ class GeminiService:
 
         # Exponential backoff delays for 503: attempt 0→2s, attempt 1→5s
         _503_delays = [2.0, 5.0]
-
         last_error: Optional[Exception] = None
 
         for attempt in range(max_retries + 1):
@@ -314,35 +449,29 @@ class GeminiService:
                         try:
                             data = resp.json()
                         except Exception as je:
-                            GeminiUsageTracker.record_failure(db=db, is_quota=False)
                             GeminiStatusTracker.update_status("ERROR", db=db, http_code=200)
                             raise ValueError(f"Malformed JSON returned by Gemini endpoint: {je}")
 
                         candidates = data.get("candidates", [])
                         if not candidates:
-                            GeminiUsageTracker.record_failure(db=db, is_quota=False)
                             GeminiStatusTracker.update_status("ERROR", db=db, http_code=200)
                             raise ValueError("Gemini API returned an empty response (no candidates).")
 
                         candidate = candidates[0]
                         parts = candidate.get("content", {}).get("parts", [])
                         if not parts:
-                            GeminiUsageTracker.record_failure(db=db, is_quota=False)
                             GeminiStatusTracker.update_status("ERROR", db=db, http_code=200)
                             raise ValueError("Gemini API returned an empty response (no content parts).")
 
                         text_parts = [p.get("text", "") for p in parts if "text" in p]
                         raw_text = "".join(text_parts).strip()
                         if not raw_text:
-                            GeminiUsageTracker.record_failure(db=db, is_quota=False)
                             GeminiStatusTracker.update_status("ERROR", db=db, http_code=200)
                             raise ValueError("Gemini API returned empty text.")
 
-                        GeminiUsageTracker.record_success(db=db)
-                        GeminiStatusTracker.update_status("READY", db=db, http_code=200)
                         return raw_text
 
-                    # Try to extract error message from response JSON
+                    # Extract error details
                     err_msg = ""
                     err_json = None
                     try:
@@ -351,21 +480,28 @@ class GeminiService:
                     except Exception:
                         err_msg = resp.text[:200]
 
+                    clean_err = sanitize_error_message(err_msg, api_key)
+
                     # 429 Rate Limit / Quota Exceeded
                     if status_code == 429:
                         if is_daily_quota_error(status_code, err_msg, err_json):
                             # DAILY QUOTA EXHAUSTED: DO NOT RETRY. FAIL FAST.
-                            GeminiUsageTracker.record_failure(db=db, is_quota=True)
                             GeminiStatusTracker.update_status("QUOTA_EXCEEDED", db=db, http_code=429)
                             logger.error(f"Gemini daily quota exhausted for model {model_name}. Aborting without retry.")
                             raise GeminiQuotaExceededError(
                                 "GEMINI_QUOTA_EXCEEDED: Gemini daily quota has been reached. "
-                                "Try again after quota reset or use a project with sufficient quota."
+                                "Try again after quota reset or use a project with sufficient quota.",
+                                status_code=429,
+                                upstream_message=clean_err,
+                                model_name=model_name
                             )
 
                         # Temporary Rate Limit (burst / per-minute)
-                        if attempt < max_retries:
-                            retry_delay = 2.0 * (attempt + 1)
+                        retry_after_hdr = resp.headers.get("retry-after")
+                        retry_delay = 2.0 * (attempt + 1)
+                        if retry_after_hdr and retry_after_hdr.isdigit():
+                            retry_delay = min(float(retry_after_hdr), 15.0)
+                        else:
                             m_wait = re.search(r"retry in (\d+(?:\.\d+)?)s", err_msg, re.IGNORECASE)
                             if m_wait:
                                 try:
@@ -374,6 +510,8 @@ class GeminiService:
                                         retry_delay = extracted
                                 except Exception:
                                     pass
+
+                        if attempt < max_retries:
                             GeminiStatusTracker.update_status("RATE_LIMITED", db=db, http_code=429)
                             logger.warning(
                                 f"Gemini 429 Temporary Rate Limit (attempt {attempt + 1}/{max_retries + 1}), "
@@ -382,130 +520,376 @@ class GeminiService:
                             time.sleep(retry_delay)
                             continue
 
-                        GeminiUsageTracker.record_failure(db=db, is_quota=False)
                         GeminiStatusTracker.update_status("RATE_LIMITED", db=db, http_code=429)
-                        raise GeminiRateLimitError(f"Gemini API 429 Rate Limit Exceeded: {err_msg}")
+                        raise GeminiRateLimitError(
+                            f"Gemini API 429 Rate Limit Exceeded: {clean_err}",
+                            status_code=429,
+                            upstream_message=clean_err,
+                            model_name=model_name
+                        )
 
                     # 400 Bad Request
                     if status_code == 400:
-                        GeminiUsageTracker.record_failure(db=db, is_quota=False)
                         GeminiStatusTracker.update_status("ERROR", db=db, http_code=400)
-                        raise RuntimeError(f"Gemini API 400 Bad Request: {err_msg}")
+                        raise GeminiBadRequestError(
+                            f"Gemini API 400 Bad Request: {clean_err}",
+                            status_code=400,
+                            upstream_message=clean_err,
+                            model_name=model_name
+                        )
 
                     # 401 Unauthorized
                     if status_code == 401:
-                        GeminiUsageTracker.record_failure(db=db, is_quota=False)
                         GeminiStatusTracker.update_status("AUTH_ERROR", db=db, http_code=401)
-                        raise RuntimeError("Gemini API 401 Unauthorized: Invalid API Key. Please verify your key in Settings.")
+                        raise GeminiAuthError(
+                            "Gemini API 401 Unauthorized: Invalid API Key. Please verify your key in Settings.",
+                            status_code=401,
+                            upstream_message=clean_err,
+                            model_name=model_name
+                        )
 
                     # 403 Forbidden
                     if status_code == 403:
-                        GeminiUsageTracker.record_failure(db=db, is_quota=False)
                         GeminiStatusTracker.update_status("AUTH_ERROR", db=db, http_code=403)
-                        raise RuntimeError(f"Gemini API 403 Forbidden: Permission denied for model '{model_name}'. Details: {err_msg}")
+                        raise GeminiPermissionError(
+                            f"Gemini API 403 Forbidden: Permission denied for model '{model_name}'. Details: {clean_err}",
+                            status_code=403,
+                            upstream_message=clean_err,
+                            model_name=model_name
+                        )
 
                     # 404 Model Not Found
                     if status_code == 404:
-                        GeminiUsageTracker.record_failure(db=db, is_quota=False)
                         GeminiStatusTracker.update_status("ERROR", db=db, http_code=404)
-                        raise RuntimeError(f"Gemini API 404 Not Found: Model '{model_name}' was not found. Details: {err_msg}")
+                        raise GeminiModelNotFoundError(
+                            f"Gemini API 404 Not Found: Model '{model_name}' was not found. Details: {clean_err}",
+                            status_code=404,
+                            upstream_message=clean_err,
+                            model_name=model_name
+                        )
 
-                    # 500+ / 503 Server Error / Overload — exponential backoff
-                    if status_code >= 500:
-                        GeminiStatusTracker.update_status("BUSY", db=db, http_code=status_code)
+                    # 500 Google Internal Server Error
+                    if status_code == 500:
+                        GeminiStatusTracker.update_status("BUSY", db=db, http_code=500)
                         if attempt < max_retries:
                             delay = _503_delays[attempt] if attempt < len(_503_delays) else 5.0
                             logger.warning(
-                                f"Gemini {status_code} Temporary Overload "
-                                f"(attempt {attempt + 1}/{max_retries + 1}), "
+                                f"Gemini 500 Internal Error (attempt {attempt + 1}/{max_retries + 1}), "
                                 f"retrying in {delay:.0f}s..."
                             )
                             time.sleep(delay)
                             continue
-                        GeminiUsageTracker.record_failure(db=db, is_quota=False)
-                        raise RuntimeError(
-                            f"Gemini API {status_code} Server Error: Gemini vẫn đang quá tải sau "
-                            f"{max_retries + 1} lần thử. Hãy thử lại sau."
+                        raise GeminiInternalServerError(
+                            f"Google Gemini Internal Server Error (HTTP 500): {clean_err}",
+                            status_code=500,
+                            upstream_message=clean_err,
+                            model_name=model_name
+                        )
+
+                    # 502 / 503 / 504 / 500+ Overload & Service Unavailable
+                    if status_code >= 501:
+                        GeminiStatusTracker.update_status("BUSY", db=db, http_code=status_code)
+                        if attempt < max_retries:
+                            delay = _503_delays[attempt] if attempt < len(_503_delays) else 5.0
+                            logger.warning(
+                                f"Gemini {status_code} Temporary Overload (attempt {attempt + 1}/{max_retries + 1}), "
+                                f"retrying in {delay:.0f}s..."
+                            )
+                            time.sleep(delay)
+                            continue
+                        raise GeminiServiceUnavailableError(
+                            f"Gemini API {status_code} Server Error: Gemini tạm thời quá tải (HTTP {status_code}). "
+                            f"Google: {clean_err or 'High demand'}. Hệ thống đã thử lại {max_retries + 1} lần. Hãy thử lại sau.",
+                            status_code=status_code,
+                            upstream_message=clean_err,
+                            model_name=model_name
                         )
 
                     # Other unexpected status codes
-                    GeminiUsageTracker.record_failure(db=db, is_quota=False)
                     GeminiStatusTracker.update_status("ERROR", db=db, http_code=status_code)
-                    raise RuntimeError(f"Gemini API error {status_code}: {err_msg}")
+                    raise GeminiAPIError(
+                        f"Gemini API error {status_code}: {clean_err}",
+                        status_code=status_code,
+                        upstream_message=clean_err,
+                        model_name=model_name
+                    )
 
-            except (GeminiQuotaExceededError, GeminiRateLimitError, ValueError, RuntimeError) as e:
-                # If already handled custom error, raise immediately without further retrying
+            except (GeminiAPIError, ValueError) as e:
                 raise e
 
             except httpx.TimeoutException:
-                last_error = RuntimeError(f"Gemini API request timed out after {timeout} seconds.")
+                last_error = GeminiTimeoutError(
+                    f"Gemini API request timed out after {timeout} seconds.",
+                    model_name=model_name
+                )
                 if attempt < max_retries:
                     logger.warning(f"Timeout on attempt {attempt + 1}, retrying in 2s...")
                     time.sleep(2)
                     continue
-                GeminiUsageTracker.record_failure(db=db, is_quota=False)
                 GeminiStatusTracker.update_status("NETWORK_ERROR", db=db)
                 raise last_error
 
             except httpx.NetworkError as ne:
-                last_error = RuntimeError(f"Gemini API network failure: {str(ne)}")
+                clean_ne = sanitize_error_message(str(ne), api_key)
+                last_error = GeminiNetworkError(
+                    f"Lỗi kết nối mạng tới Gemini API: {clean_ne}",
+                    model_name=model_name
+                )
                 if attempt < max_retries:
                     logger.warning(f"Network error on attempt {attempt + 1}, retrying in 2s...")
                     time.sleep(2)
                     continue
-                GeminiUsageTracker.record_failure(db=db, is_quota=False)
                 GeminiStatusTracker.update_status("NETWORK_ERROR", db=db)
                 raise last_error
 
             except Exception as e:
-                GeminiUsageTracker.record_failure(db=db, is_quota=False)
+                clean_e = sanitize_error_message(str(e), api_key)
                 GeminiStatusTracker.update_status("ERROR", db=db)
-                raise RuntimeError(f"Gemini request failed: {str(e)}")
+                raise GeminiAPIError(
+                    f"Gemini request failed: {clean_e}",
+                    model_name=model_name
+                )
 
         if last_error:
-            GeminiUsageTracker.record_failure(db=db, is_quota=False)
-            GeminiStatusTracker.update_status("ERROR", db=db)
             raise last_error
-        GeminiUsageTracker.record_failure(db=db, is_quota=False)
-        GeminiStatusTracker.update_status("ERROR", db=db)
-        raise RuntimeError("Gemini API call failed after retries.")
+        raise GeminiServiceUnavailableError(
+            f"Gemini API {model_name} call failed after retries.",
+            status_code=503,
+            model_name=model_name
+        )
+
+    def call_gemini(
+        self,
+        prompt: str,
+        db: Optional[Session] = None,
+        timeout: float = 60.0,
+        max_retries: int = 2,
+        enable_fallback: bool = False
+    ) -> str:
+        """
+        Production-grade Gemini API caller using configured GEMINI_MODEL with 503 smart fallback.
+        Features:
+        - Strict low request consumption: No retries on Daily Quota exhaustion
+        - Discriminates 429 Daily Quota vs 429 Temporary Rate Limit
+        - Fast-fails with GeminiQuotaExceededError on daily quota
+        - Records lightweight local usage statistics in SQLite
+        - Updates GeminiStatusTracker for UI badge (no extra quota consumed)
+        - Masks API key from logs and errors
+        - 503 bounded exponential backoff: attempt1→2s, attempt2→5s
+        - Transparent fallback to verified available model ONLY when primary exhausts 503 retries
+        """
+        api_key = get_api_key(db)
+        model_name = get_model_name(db)
+
+        if not api_key:
+            GeminiStatusTracker.update_status("AUTH_ERROR", db=db, http_code=401)
+            raise ValueError("Gemini API key is not configured. Please enter your API key in Settings.")
+
+        # Record start of request in local tracker
+        GeminiUsageTracker.record_request_start(db=db)
+        # Signal that a real request is now in-flight (local only, no network)
+        GeminiStatusTracker.update_status("CHECKING", db=db)
+
+        self.last_execution = {
+            "primary_model": model_name,
+            "actual_model_used": model_name,
+            "fallback_used": False,
+            "primary_failure": None,
+            "primary_error": None
+        }
+
+        try:
+            # 1. Execute on primary configured model
+            raw_text = self._execute_single_model_call(
+                model_name=model_name,
+                prompt=prompt,
+                api_key=api_key,
+                db=db,
+                timeout=timeout,
+                max_retries=max_retries,
+                is_fallback=False
+            )
+            GeminiUsageTracker.record_success(db=db)
+            GeminiStatusTracker.update_status("READY", db=db, http_code=200)
+            return raw_text
+
+        except GeminiServiceUnavailableError as sue:
+            # ONLY 503 / 500+ triggers optional smart fallback after primary model retries exhausted
+            if not enable_fallback:
+                GeminiUsageTracker.record_failure(db=db, is_quota=False)
+                raise sue
+
+            fallback_model = select_fallback_model(model_name, api_key)
+            if not fallback_model or fallback_model == model_name:
+                GeminiUsageTracker.record_failure(db=db, is_quota=False)
+                raise sue
+
+            logger.warning(
+                f"Primary model '{model_name}' exhausted 503 retries ({sue.upstream_message}). "
+                f"Attempting smart fallback with available model '{fallback_model}'..."
+            )
+
+            try:
+                raw_text = self._execute_single_model_call(
+                    model_name=fallback_model,
+                    prompt=prompt,
+                    api_key=api_key,
+                    db=db,
+                    timeout=timeout,
+                    max_retries=1,
+                    is_fallback=True
+                )
+                self.last_execution = {
+                    "primary_model": model_name,
+                    "actual_model_used": fallback_model,
+                    "fallback_used": True,
+                    "primary_failure": 503,
+                    "primary_error": sue.upstream_message
+                }
+                logger.info(
+                    f"Successfully generated response via fallback model '{fallback_model}' "
+                    f"(primary '{model_name}' was 503 unavailable)."
+                )
+                GeminiUsageTracker.record_success(db=db)
+                GeminiStatusTracker.update_status(
+                    "READY",
+                    db=db,
+                    http_code=200,
+                    custom_message=f"Gemini sẵn sàng (model dự phòng {fallback_model})"
+                )
+                return raw_text
+
+            except Exception as fe:
+                logger.error(f"Fallback model '{fallback_model}' also failed: {fe}")
+                GeminiUsageTracker.record_failure(db=db, is_quota=False)
+                clean_fe = sanitize_error_message(str(fe), api_key)
+                raise GeminiServiceUnavailableError(
+                    f"Gemini API 503 Server Error: Model chính '{model_name}' quá tải (Google: {sue.upstream_message}). "
+                    f"Model dự phòng '{fallback_model}' cũng không phản hồi ({clean_fe}). Vui lòng thử lại sau.",
+                    status_code=503,
+                    upstream_message=sue.upstream_message,
+                    model_name=model_name
+                )
+
+        except Exception as e:
+            is_quota = isinstance(e, GeminiQuotaExceededError)
+            GeminiUsageTracker.record_failure(db=db, is_quota=is_quota)
+            raise e
 
     def test_connection(self, db: Optional[Session] = None) -> Dict[str, Any]:
-        """Test Gemini API connection using the configured model."""
+        """Test Gemini API connection using the configured model with resilient 503 backoff and fallback."""
         api_key = get_api_key(db)
         model_name = get_model_name(db)
 
         if not api_key:
             return {
                 "success": False,
+                "error_type": "AUTH_ERROR",
                 "error": "Gemini API key is not configured. Please add your key in Settings."
             }
 
         try:
+            # Allow up to 2 retries (3 attempts total) with exponential backoff and smart fallback
             res_text = self.call_gemini(
                 prompt="Ping. Respond with 'OK'.",
                 db=db,
-                timeout=15.0,
-                max_retries=0
+                timeout=30.0,
+                max_retries=2,
+                enable_fallback=True
             )
+
+            fallback_info = getattr(self, "last_execution", {})
+            fallback_used = fallback_info.get("fallback_used", False)
+            actual_model = fallback_info.get("actual_model_used", model_name)
+
+            if fallback_used:
+                msg = (
+                    f"Kết nối thành công (sử dụng model dự phòng {actual_model} "
+                    f"do {model_name} quá tải HTTP 503)."
+                )
+            else:
+                msg = f"Connected successfully to {model_name}."
+
             return {
                 "success": True,
-                "message": f"Connected successfully to {model_name}.",
+                "message": msg,
                 "model": model_name,
+                "actual_model": actual_model,
+                "fallback_used": fallback_used,
                 "response": res_text
             }
-        except GeminiQuotaExceededError:
+
+        except GeminiQuotaExceededError as qe:
+            clean_msg = sanitize_error_message(str(qe), api_key)
             return {
                 "success": False,
                 "quota_exceeded": True,
-                "error": "Gemini daily quota has been reached. Try again after quota reset or use a project with sufficient quota.",
+                "error_type": "QUOTA_EXCEEDED",
+                "status_code": 429,
+                "error": f"Hạn mức Gemini hàng ngày đã hết. {clean_msg}",
+                "model": model_name
+            }
+        except GeminiRateLimitError as rle:
+            clean_msg = sanitize_error_message(str(rle), api_key)
+            return {
+                "success": False,
+                "rate_limited": True,
+                "error_type": "RATE_LIMITED",
+                "status_code": 429,
+                "error": f"Gemini đang bị giới hạn tốc độ tạm thời. {clean_msg}",
+                "model": model_name
+            }
+        except GeminiAuthError as ae:
+            clean_msg = sanitize_error_message(str(ae), api_key)
+            return {
+                "success": False,
+                "error_type": "AUTH_ERROR",
+                "status_code": 401,
+                "error": clean_msg,
+                "model": model_name
+            }
+        except GeminiPermissionError as pe:
+            clean_msg = sanitize_error_message(str(pe), api_key)
+            return {
+                "success": False,
+                "error_type": "PERMISSION_ERROR",
+                "status_code": 403,
+                "error": clean_msg,
+                "model": model_name
+            }
+        except GeminiModelNotFoundError as mne:
+            clean_msg = sanitize_error_message(str(mne), api_key)
+            return {
+                "success": False,
+                "error_type": "MODEL_NOT_FOUND",
+                "status_code": 404,
+                "error": clean_msg,
+                "model": model_name
+            }
+        except GeminiServiceUnavailableError as sue:
+            clean_msg = sanitize_error_message(str(sue), api_key)
+            return {
+                "success": False,
+                "error_type": "SERVER_BUSY",
+                "status_code": 503,
+                "error": clean_msg,
+                "model": model_name
+            }
+        except (GeminiTimeoutError, GeminiNetworkError) as ne:
+            clean_msg = sanitize_error_message(str(ne), api_key)
+            return {
+                "success": False,
+                "error_type": "NETWORK_ERROR",
+                "error": clean_msg,
                 "model": model_name
             }
         except Exception as e:
-            logger.error(f"Gemini connection test failed: {e}")
+            clean_msg = sanitize_error_message(str(e), api_key)
+            logger.error(f"Gemini connection test failed: {clean_msg}")
             return {
                 "success": False,
-                "error": f"Connection failed: {str(e)}",
+                "error_type": "UNKNOWN",
+                "error": f"Connection failed: {clean_msg}",
                 "model": model_name
             }
 
@@ -543,7 +927,7 @@ Example structure:
   }}
 ]
 """
-        raw_content = self.call_gemini(prompt, db=db, timeout=60.0)
+        raw_content = self.call_gemini(prompt, db=db, timeout=60.0, enable_fallback=True)
 
         cleaned = clean_json_response(raw_content)
         try:
@@ -628,7 +1012,7 @@ QUY TẮC BẮT BUỘC:
   ]
 }}
 """
-        raw_text = self.call_gemini(prompt, db=db, timeout=60.0)
+        raw_text = self.call_gemini(prompt, db=db, timeout=60.0, enable_fallback=True)
         cleaned = clean_json_response(raw_text)
 
         try:
@@ -718,7 +1102,7 @@ QUY TẮC:
             }
 
         prompt = self.build_rewrite_prompt(failed_segments, round_num=round_num, max_rounds=max_rounds, product_name=product_name)
-        raw_text = self.call_gemini(prompt, db=db, timeout=60.0)
+        raw_text = self.call_gemini(prompt, db=db, timeout=60.0, enable_fallback=True)
         cleaned = clean_json_response(raw_text)
 
         try:

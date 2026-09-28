@@ -183,7 +183,7 @@ CHỈ TRẢ VỀ DUY NHẤT MỘT ĐỐI TƯỢNG JSON HỢP LỆ THEO ĐÚNG C�
             gemini = GeminiService()
             for attempt in range(max_retries + 1):
                 try:
-                    raw_text = gemini.call_gemini(prompt, db=db, timeout=60.0, max_retries=max_retries)
+                    raw_text = gemini.call_gemini(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
                     cleaned = clean_json_response(raw_text)
                     candidate = json.loads(cleaned)
                     val_res = validate_content_json(candidate)
