@@ -268,3 +268,81 @@ def get_openrouter_api_key(db=None) -> str:
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     return os.getenv("OPENROUTER_API_KEY", "").strip()
 
+
+# ==============================================================================
+# MULTI-AI ROUTING & FALLBACK CONFIGURATION (Phase 4)
+# ==============================================================================
+
+DEFAULT_AI_FALLBACK_ENABLED = False
+DEFAULT_AI_FALLBACK_PROVIDERS = ""
+DEFAULT_AI_FALLBACK_ON_QUOTA = False
+
+
+def get_ai_fallback_enabled(db=None) -> bool:
+    """
+    Check if cross-provider fallback is explicitly enabled by the customer.
+    Defaults to False (off).
+    """
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["ai_fallback_enabled", "AI_FALLBACK_ENABLED"])).first()
+            if rec and rec.value is not None:
+                return str(rec.value).strip().lower() in ("true", "1", "yes", "on")
+        except Exception as e:
+            logger.debug(f"Could not read ai_fallback_enabled from db: {e}")
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    env_val = os.getenv("AI_FALLBACK_ENABLED", "").strip().lower()
+    return env_val in ("true", "1", "yes", "on")
+
+
+def get_ai_fallback_providers(db=None):
+    """
+    Retrieve deterministic fallback candidate order as a list of provider IDs.
+    Returns only valid supported providers, preserving order.
+    """
+    raw_str = ""
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["ai_fallback_providers", "AI_FALLBACK_PROVIDERS"])).first()
+            if rec and rec.value:
+                raw_str = str(rec.value).strip()
+        except Exception as e:
+            logger.debug(f"Could not read ai_fallback_providers from db: {e}")
+
+    if not raw_str:
+        load_dotenv(dotenv_path=ENV_FILE, override=True)
+        raw_str = os.getenv("AI_FALLBACK_PROVIDERS", "").strip()
+
+    if not raw_str:
+        return []
+
+    tokens = [t.strip().lower() for t in raw_str.split(",") if t.strip()]
+    valid = []
+    for t in tokens:
+        if t in SUPPORTED_AI_PROVIDERS and t not in valid:
+            valid.append(t)
+    return valid
+
+
+def get_ai_fallback_on_quota(db=None) -> bool:
+    """
+    Check if cross-provider fallback is allowed on 429 Rate Limit / Quota Exhausted errors.
+    Conservative Policy: Defaults to False (off) to prevent unexpected paid quota usage.
+    """
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["ai_fallback_on_quota", "AI_FALLBACK_ON_QUOTA"])).first()
+            if rec and rec.value is not None:
+                return str(rec.value).strip().lower() in ("true", "1", "yes", "on")
+        except Exception as e:
+            logger.debug(f"Could not read ai_fallback_on_quota from db: {e}")
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    env_val = os.getenv("AI_FALLBACK_ON_QUOTA", "").strip().lower()
+    return env_val in ("true", "1", "yes", "on")
+
+

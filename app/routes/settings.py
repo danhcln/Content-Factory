@@ -17,7 +17,8 @@ from app.config import (
     DEFAULT_GROQ_MODEL, get_groq_model, get_groq_api_key,
     DEFAULT_OPENROUTER_MODEL, get_openrouter_model, get_openrouter_api_key,
     DEFAULT_ACTIVE_AI_PROVIDER, get_active_ai_provider,
-    mask_api_key, get_key_hint, SUPPORTED_AI_PROVIDERS
+    mask_api_key, get_key_hint, SUPPORTED_AI_PROVIDERS,
+    get_ai_fallback_enabled, get_ai_fallback_providers, get_ai_fallback_on_quota
 )
 from app.models import Setting
 from app.services.usage_tracker import GeminiUsageTracker
@@ -195,8 +196,15 @@ def get_current_settings(db: Session = None):
             "default_model": def_model
         }
 
+    fallback_enabled = get_ai_fallback_enabled(db)
+    fallback_providers = get_ai_fallback_providers(db)
+    fallback_on_quota = get_ai_fallback_on_quota(db)
+
     return {
         "active_ai_provider": active_prov,
+        "ai_fallback_enabled": fallback_enabled,
+        "ai_fallback_providers": fallback_providers,
+        "ai_fallback_on_quota": fallback_on_quota,
         "ai_providers": {
             "active_provider": active_prov,
             "providers": providers_info
@@ -260,6 +268,9 @@ def save_settings(
     groq_model: str = Form(DEFAULT_GROQ_MODEL),
     openrouter_api_key: str = Form(""),
     openrouter_model: str = Form(DEFAULT_OPENROUTER_MODEL),
+    ai_fallback_enabled: str = Form("off"),
+    ai_fallback_providers: str = Form(""),
+    ai_fallback_on_quota: str = Form("off"),
     products_per_research: str = Form("10"),
     keywords_per_product: str = Form("3"),
     videos_per_product: str = Form("5"),
@@ -307,6 +318,34 @@ def save_settings(
     save_provider_settings(db, "anthropic", anthropic_api_key, anthropic_model)
     save_provider_settings(db, "groq", groq_api_key, groq_model)
     save_provider_settings(db, "openrouter", openrouter_api_key, openrouter_model)
+
+    # 3. Smart Routing & Cross-Provider Fallback Settings
+    fallback_en_val = "true" if ai_fallback_enabled in ("on", "true", "1") else "false"
+    db_fb_en = db.query(Setting).filter(Setting.key.in_(["ai_fallback_enabled", "AI_FALLBACK_ENABLED"])).first()
+    if not db_fb_en:
+        db_fb_en = Setting(key="ai_fallback_enabled", value=fallback_en_val, description="AI Fallback Enabled")
+        db.add(db_fb_en)
+    else:
+        db_fb_en.value = fallback_en_val
+
+    fb_tokens = [t.strip().lower() for t in ai_fallback_providers.split(",") if t.strip()]
+    fb_valid = [t for t in fb_tokens if t in SUPPORTED_AI_PROVIDERS and t != active_clean]
+    fb_val_str = ",".join(fb_valid)
+    db_fb_prov = db.query(Setting).filter(Setting.key.in_(["ai_fallback_providers", "AI_FALLBACK_PROVIDERS"])).first()
+    if not db_fb_prov:
+        db_fb_prov = Setting(key="ai_fallback_providers", value=fb_val_str, description="AI Fallback Candidate Order")
+        db.add(db_fb_prov)
+    else:
+        db_fb_prov.value = fb_val_str
+
+    fallback_quota_val = "true" if ai_fallback_on_quota in ("on", "true", "1") else "false"
+    db_fb_q = db.query(Setting).filter(Setting.key.in_(["ai_fallback_on_quota", "AI_FALLBACK_ON_QUOTA"])).first()
+    if not db_fb_q:
+        db_fb_q = Setting(key="ai_fallback_on_quota", value=fallback_quota_val, description="AI Fallback On Quota (429)")
+        db.add(db_fb_q)
+    else:
+        db_fb_q.value = fallback_quota_val
+
     db.commit()
 
     set_key(str(ENV_FILE), "DEFAULT_PRODUCTS_COUNT", products_per_research.strip())

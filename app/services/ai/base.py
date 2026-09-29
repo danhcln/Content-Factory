@@ -8,7 +8,7 @@ It contains ZERO provider-specific networking details.
 import re
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 
@@ -114,6 +114,14 @@ class AIInvalidResponseError(AIProviderError):
         super().__init__(message, **kwargs)
 
 
+class AIFallbackExhaustedError(AIProviderError):
+    """Raised when all configured AI fallback providers have failed."""
+    def __init__(self, message: str, **kwargs):
+        kwargs.setdefault("error_type", "fallback_exhausted")
+        kwargs.setdefault("status_code", 503)
+        super().__init__(message, **kwargs)
+
+
 # ==============================================================================
 # PROVIDER-NEUTRAL OPTIONS & METADATA
 # ==============================================================================
@@ -124,6 +132,7 @@ class AIGenerationOptions:
     timeout: float = 60.0
     max_retries: int = 2
     enable_fallback: bool = True
+    allow_cross_provider_fallback: bool = False
     temperature: Optional[float] = None
     max_output_tokens: Optional[int] = None
     system_instruction: Optional[str] = None
@@ -136,8 +145,11 @@ class ExecutionMetadata:
     provider: str
     provider_type: str = "direct"
     configured_model: str = ""
+    actual_provider_used: str = ""
     actual_model_used: str = ""
     fallback_used: bool = False
+    fallback_attempts: int = 0
+    fallback_chain: List[Dict[str, Any]] = field(default_factory=list)
     status: str = "SUCCESS"
     error_type: Optional[str] = None
     attempts: int = 1
@@ -151,8 +163,11 @@ class ExecutionMetadata:
             "provider": self.provider,
             "provider_type": self.provider_type,
             "configured_model": self.configured_model,
+            "actual_provider_used": self.actual_provider_used or self.provider,
             "actual_model_used": self.actual_model_used,
             "fallback_used": self.fallback_used,
+            "fallback_attempts": self.fallback_attempts,
+            "fallback_chain": self.fallback_chain,
             "status": self.status,
             "error_type": self.error_type,
             "attempts": self.attempts,
@@ -352,6 +367,7 @@ Example structure:
                 timeout=60.0,
                 max_retries=0,
                 enable_fallback=False,
+                allow_cross_provider_fallback=False,
                 max_output_tokens=output_budget
             )
         )
@@ -442,7 +458,18 @@ QUY TẮC BẮT BUỘC:
   ]
 }}
 """
-        raw_text = self.generate(prompt, db=db, timeout=60.0, enable_fallback=True)
+        raw_text = self.generate(
+            prompt,
+            db=db,
+            timeout=60.0,
+            enable_fallback=True,
+            options=AIGenerationOptions(
+                timeout=60.0,
+                max_retries=2,
+                enable_fallback=True,
+                allow_cross_provider_fallback=True
+            )
+        )
         cleaned = clean_json_text(raw_text)
 
         try:
@@ -538,7 +565,18 @@ QUY TẮC:
             max_rounds=max_rounds,
             product_name=product_name
         )
-        raw_text = self.generate(prompt, db=db, timeout=60.0, enable_fallback=True)
+        raw_text = self.generate(
+            prompt,
+            db=db,
+            timeout=60.0,
+            enable_fallback=True,
+            options=AIGenerationOptions(
+                timeout=60.0,
+                max_retries=1,
+                enable_fallback=True,
+                allow_cross_provider_fallback=True
+            )
+        )
         cleaned = clean_json_text(raw_text)
 
         try:

@@ -69,6 +69,102 @@
                     </div>
                 </div>
 
+                <!-- SMART ROUTING & CROSS-PROVIDER FALLBACK SECTION (Phase 4) -->
+                <div class="card bg-dark border-secondary-subtle p-3 mb-4">
+                    <div class="d-flex justify-content-between align-items-center border-bottom border-secondary-subtle pb-2 mb-3">
+                        <h6 class="fw-bold text-white mb-0">
+                            <i class="bi bi-shield-check text-info me-2"></i>Định Tuyến & Chuyển Đổi Dự Phòng (Smart Routing & Fallback)
+                        </h6>
+                        <span class="badge bg-secondary-subtle text-secondary small">Tự Động Phục Hồi • Kiểm Soát Chi Phí</span>
+                    </div>
+
+                    <!-- Master Switch -->
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" name="ai_fallback_enabled" id="aiFallbackEnabledSwitch" {% if settings.ai_fallback_enabled %}checked{% endif %}>
+                        <label class="form-check-label text-light fw-semibold" for="aiFallbackEnabledSwitch">
+                            Bật Chuyển Đổi Dự Phòng Liên Nhà Cung Cấp (Cross-Provider Fallback)
+                        </label>
+                        <div class="form-text text-secondary small">
+                            Khi bật, nếu nhà cung cấp chính gặp sự cố (quá tải 5xx, mất kết nối mạng, timeout), hệ thống sẽ tuần tự chuyển đổi sang các nhà cung cấp dự phòng được chọn bên dưới.
+                        </div>
+                    </div>
+
+                    <!-- General Billing & Cost Warning -->
+                    <div class="alert alert-dark border border-secondary-subtle p-2 mb-3 small d-flex gap-2">
+                        <i class="bi bi-info-circle-fill text-info flex-shrink-0 mt-1"></i>
+                        <div>
+                            <div class="text-light fw-semibold">Cảnh báo chi phí & hạn ngạch:</div>
+                            <div class="text-secondary">
+                                Tính năng chuyển đổi dự phòng có thể phát sinh chi phí hoặc tiêu hao hạn ngạch theo biểu phí của tài khoản API tương ứng mà bạn đã liên kết. Chỉ những nhà cung cấp bạn tích chọn và đã cấu hình API Key mới có thể tham gia dự phòng.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Research Invariant Protection Notice -->
+                    <div class="alert alert-primary-subtle border border-primary-subtle p-2 mb-3 small d-flex gap-2">
+                        <i class="bi bi-shield-lock-fill text-primary flex-shrink-0 mt-1"></i>
+                        <div>
+                            <span class="text-primary fw-semibold">Bảo Vệ Ngân Sách Nghiên Cứu (Research Invariant):</span>
+                            <span class="text-secondary">
+                                Quy trình Nghiên Cứu Sản Phẩm luôn bị <strong>LOẠI TRỪ</strong> khỏi tính năng chuyển đổi dự phòng (0 token khi có cache, đúng 1 request khi tạo mới, không retry, không chuyển provider).
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Conservative 429 Opt-In Switch -->
+                    <div class="form-check form-switch mb-3 p-2 bg-dark-subtle rounded border border-secondary-subtle">
+                        <div class="ms-4">
+                            <input class="form-check-input" type="checkbox" name="ai_fallback_on_quota" id="aiFallbackOnQuotaSwitch" {% if settings.ai_fallback_on_quota %}checked{% endif %}>
+                            <label class="form-check-label text-light small fw-semibold" for="aiFallbackOnQuotaSwitch">
+                                Cho phép chuyển đổi dự phòng khi gặp lỗi Hạn ngạch / Tần suất (HTTP 429 Quota & Rate Limit)
+                            </label>
+                            <div class="form-text text-secondary" style="font-size: 0.75rem;">
+                                Mặc định TẮT để bảo vệ ngân sách. Khi TẮT, lỗi 429 sẽ dừng ngay lập tức mà không tự động chuyển sang nhà cung cấp trả phí khác.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fallback Candidate Selection -->
+                    <div class="mb-2">
+                        <label class="form-label text-light small fw-semibold">Danh sách nhà cung cấp dự phòng được phép tham gia:</label>
+                        <input type="hidden" name="ai_fallback_providers" id="input_ai_fallback_providers" value="{{ settings.ai_fallback_providers|join(',') }}">
+                        
+                        <div class="list-group" id="fallbackCandidatesList">
+                            {% for pid in ['gemini', 'openai', 'anthropic', 'groq', 'openrouter'] %}
+                            {% set prov = settings.ai_providers.providers[pid] %}
+                            <div class="list-group-item bg-dark text-white border-secondary-subtle d-flex align-items-center justify-content-between p-2 mb-1 rounded {% if settings.active_ai_provider == pid %}opacity-50{% endif %}">
+                                <div class="form-check d-flex align-items-center gap-2 mb-0">
+                                    <input class="form-check-input fallback-candidate-checkbox" type="checkbox" value="{{ pid }}" id="fb_cb_{{ pid }}" 
+                                        {% if pid in settings.ai_fallback_providers and settings.active_ai_provider != pid %}checked{% endif %}
+                                        {% if settings.active_ai_provider == pid or not prov.configured %}disabled{% endif %}>
+                                    <label class="form-check-label text-light small fw-semibold mb-0" for="fb_cb_{{ pid }}">
+                                        {{ prov.name }}
+                                        {% if prov.is_gateway %}
+                                        <span class="badge bg-info-subtle text-info border border-info-subtle ms-1" style="font-size: 0.65rem;">Cloud Gateway</span>
+                                        {% else %}
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1" style="font-size: 0.65rem;">Direct BYOK</span>
+                                        {% endif %}
+                                    </label>
+                                </div>
+                                <div class="small">
+                                    {% if settings.active_ai_provider == pid %}
+                                    <span class="badge bg-secondary text-light" style="font-size: 0.7rem;">Nhà cung cấp chính hiện tại</span>
+                                    {% elif prov.configured %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 0.7rem;">
+                                        <i class="bi bi-check-circle me-1"></i>Đã có Key ({{ prov.key_hint }})
+                                    </span>
+                                    {% else %}
+                                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 0.7rem;">
+                                        Chưa có Key (Không thể tham gia)
+                                    </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
                 <!-- DIRECT BYOK PROVIDERS SECTION -->
                 <div class="mb-4">
                     <div class="d-flex justify-content-between align-items-center border-bottom border-secondary-subtle pb-2 mb-3">
@@ -786,6 +882,42 @@
         } catch (e) {
             resDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i> Lỗi: ${e.message}</span>`;
         }
+    });
+
+    // ── Phase 4 Fallback Candidates Ordering / Checkboxes ─
+    function updateFallbackProvidersInput() {
+        const activeRadio = document.querySelector('input[name="active_ai_provider"]:checked');
+        const activeId = activeRadio ? activeRadio.value : '';
+        const checkboxes = document.querySelectorAll('.fallback-candidate-checkbox');
+        const selected = [];
+
+        checkboxes.forEach(cb => {
+            if (cb.value === activeId) {
+                cb.checked = false;
+                cb.disabled = true;
+                cb.closest('.list-group-item')?.classList.add('opacity-50');
+            } else {
+                cb.closest('.list-group-item')?.classList.remove('opacity-50');
+            }
+            if (cb.checked && !cb.disabled) {
+                selected.push(cb.value);
+            }
+        });
+
+        const hiddenInput = document.getElementById('input_ai_fallback_providers');
+        if (hiddenInput) {
+            hiddenInput.value = selected.join(',');
+        }
+    }
+
+    document.querySelectorAll('.fallback-candidate-checkbox').forEach(cb => {
+        cb.addEventListener('change', updateFallbackProvidersInput);
+    });
+
+    document.querySelectorAll('input[name="active_ai_provider"]').forEach(r => {
+        r.addEventListener('change', () => {
+            updateFallbackProvidersInput();
+        });
     });
 </script>
 {% endblock %}

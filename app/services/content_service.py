@@ -184,7 +184,14 @@ CHỈ TRẢ VỀ DUY NHẤT MỘT ĐỐI TƯỢNG JSON HỢP LỆ THEO ĐÚNG C�
             ai_manager = get_ai_manager()
             for attempt in range(max_retries + 1):
                 try:
-                    raw_text = ai_manager.generate(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
+                    raw_text = ai_manager.generate(
+                        prompt,
+                        db=db,
+                        timeout=60.0,
+                        max_retries=max_retries,
+                        enable_fallback=True,
+                        allow_cross_provider_fallback=True
+                    )
                     cleaned = clean_json_response(raw_text)
                     candidate = json.loads(cleaned)
                     val_res = validate_content_json(candidate)

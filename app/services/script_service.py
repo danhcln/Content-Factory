@@ -145,7 +145,14 @@ YÊU CẦU QUAN TRỌNG:
         raw_script = ""
         try:
             ai_manager = get_ai_manager()
-            raw_script = ai_manager.generate(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
+            raw_script = ai_manager.generate(
+                prompt,
+                db=db,
+                timeout=60.0,
+                max_retries=max_retries,
+                enable_fallback=True,
+                allow_cross_provider_fallback=True
+            )
         except (AIQuotaExceededError, GeminiQuotaExceededError) as qe:
             logger.error(f"Gemini daily quota exceeded during script generation for {video_id}: {qe}")
             video.status = "GEMINI_QUOTA_EXCEEDED"
