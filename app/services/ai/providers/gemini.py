@@ -44,6 +44,10 @@ class GeminiProvider(AIProvider):
     def display_name(self) -> str:
         return "Google Gemini"
 
+    @property
+    def provider_type(self) -> str:
+        return "direct"
+
     def generate(
         self,
         prompt: str,
@@ -82,18 +86,37 @@ class GeminiProvider(AIProvider):
         if isinstance(report, dict):
             res_dict = dict(report)
             res_dict["provider"] = self.provider_id
+            res_dict["provider_type"] = self.provider_type
+            res_dict["configured"] = bool(get_api_key(db))
+            res_dict["connected"] = bool(report.get("success", False))
+            res_dict["configured_model"] = report.get("model", "")
+            res_dict["message"] = report.get("message", report.get("error", ""))
             return res_dict
         return report
 
-    def list_models(self, db: Optional[Session] = None) -> List[str]:
+    def list_models(self, db: Optional[Session] = None) -> List[Dict[str, Any]]:
         """
         Discover available models via Gemini catalog discovery (with 1-hour cache).
+        Normalizes results into standard dictionary structure.
         """
         api_key = get_api_key(db)
         if not api_key:
             return []
         try:
-            return discover_available_models(api_key)
+            raw_models = discover_available_models(api_key)
+            if not isinstance(raw_models, list):
+                return []
+            return [
+                {
+                    "id": m if isinstance(m, str) else m.get("id", ""),
+                    "name": m if isinstance(m, str) else m.get("name", ""),
+                    "provider": self.provider_id,
+                    "provider_type": self.provider_type,
+                    "available": True
+                }
+                for m in raw_models
+                if (m if isinstance(m, str) else m.get("id"))
+            ]
         except Exception:
             return []
 
@@ -118,6 +141,7 @@ class GeminiProvider(AIProvider):
 
         meta = ExecutionMetadata(
             provider=self.provider_id,
+            provider_type=self.provider_type,
             configured_model=configured_model,
             actual_model_used=actual_model,
             fallback_used=fallback_used,

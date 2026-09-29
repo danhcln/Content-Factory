@@ -157,7 +157,8 @@ class TestMultiAIPhase1Architecture(unittest.TestCase):
         """Manager.list_models delegates to active provider catalog discovery."""
         mgr = AIProviderManager()
         models = mgr.list_models(db=self.mock_db)
-        self.assertEqual(models, ["gemini-3.8-flash", "gemini-3.7-flash"])
+        model_ids = [m["id"] if isinstance(m, dict) else m for m in models]
+        self.assertEqual(model_ids, ["gemini-3.8-flash", "gemini-3.7-flash"])
         mock_disc.assert_called_once_with("AIzaSy_TEST_KEY")
 
     # 7. Business services use AIProviderManager
@@ -374,15 +375,21 @@ class TestMultiAIPhase1Architecture(unittest.TestCase):
         self.assertNotIn("local", provider_ids)
         self.assertNotIn("llama", provider_ids)
 
-    # 15. No fake OpenAI, Claude, OpenRouter, or Groq provider is registered yet
-    def test_15_no_fake_phase2_providers_registered(self):
-        """Phase 1 must ONLY register real Gemini; no placeholder/fake providers."""
+    # 15. Exactly 5 official cloud providers are registered in Phase 2
+    def test_15_registered_providers_phase2(self):
+        """Phase 2 registers exactly 5 real cloud providers; unknown providers raise AIProviderError."""
         mgr = AIProviderManager()
         providers = mgr.list_registered_providers()
-        self.assertEqual(len(providers), 1, "Only Gemini must be registered in Phase 1.")
-        self.assertEqual(providers[0]["provider_id"], "gemini")
+        provider_ids = [p["provider_id"] for p in providers]
+        self.assertEqual(len(providers), 5, "Exactly 5 providers must be registered in Phase 2.")
+        self.assertEqual(sorted(provider_ids), ["anthropic", "gemini", "groq", "openai", "openrouter"])
 
-        for unreg in ["openai", "claude", "anthropic", "openrouter", "groq"]:
+        for pid in ["gemini", "openai", "anthropic", "groq", "openrouter"]:
+            p = mgr.get_provider(pid)
+            self.assertIsNotNone(p)
+            self.assertEqual(p.provider_id, pid)
+
+        for unreg in ["ollama", "local", "fake_provider", "unknown"]:
             with self.assertRaises(AIProviderError):
                 mgr.get_provider(unreg)
 

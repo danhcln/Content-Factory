@@ -14,19 +14,33 @@ from app.services.ai.base import (
     AIProviderError
 )
 from app.services.ai.providers.gemini import GeminiProvider
+from app.services.ai.providers.openai import OpenAIProvider
+from app.services.ai.providers.anthropic import AnthropicProvider
+from app.services.ai.providers.groq import GroqProvider
+from app.services.ai.providers.openrouter import OpenRouterProvider
 
 
 class AIProviderManager:
     """
     Central manager for discovering, registering, and delegating to AI providers.
+    In Phase 2, registers five cloud providers:
+    - gemini (direct, default)
+    - openai (direct)
+    - anthropic (direct)
+    - groq (direct)
+    - openrouter (gateway)
     """
 
     DEFAULT_PROVIDER_ID = "gemini"
 
     def __init__(self):
         self._providers: Dict[str, AIProvider] = {}
-        # In Phase 1: Register GeminiProvider as the sole real provider
+        # Register the 5 official cloud providers
         self.register_provider(GeminiProvider())
+        self.register_provider(OpenAIProvider())
+        self.register_provider(AnthropicProvider())
+        self.register_provider(GroqProvider())
+        self.register_provider(OpenRouterProvider())
 
     def register_provider(self, provider: AIProvider) -> None:
         """Register an AI provider instance."""
@@ -51,19 +65,20 @@ class AIProviderManager:
     def get_active_provider(self, db: Optional[Session] = None) -> AIProvider:
         """
         Resolve the active provider.
-        In Phase 1, defaults to 'gemini'. Supports ACTIVE_AI_PROVIDER env var override.
+        Defaults to 'gemini'. Supports ACTIVE_AI_PROVIDER env var or db setting override.
         """
         active_id = os.getenv("ACTIVE_AI_PROVIDER", self.DEFAULT_PROVIDER_ID).strip().lower()
         if active_id not in self._providers:
             active_id = self.DEFAULT_PROVIDER_ID
         return self.get_provider(active_id)
 
-    def list_registered_providers(self) -> List[Dict[str, str]]:
-        """List all currently registered providers (Phase 1: Gemini only)."""
+    def list_registered_providers(self) -> List[Dict[str, Any]]:
+        """List all currently registered providers with provider_id, display_name, and provider_type."""
         return [
             {
                 "provider_id": p.provider_id,
-                "display_name": p.display_name
+                "display_name": p.display_name,
+                "provider_type": p.provider_type
             }
             for p in self._providers.values()
         ]
