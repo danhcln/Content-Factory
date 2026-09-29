@@ -18,32 +18,220 @@
                 <i class="bi bi-sliders me-2 text-primary"></i>Cấu Hình Cốt Lõi
             </div>
             <div class="card-body">
-                <!-- Gemini AI -->
-                <h6 class="fw-bold text-white border-bottom border-secondary-subtle pb-2 mb-3">
-                    <i class="bi bi-stars text-primary me-2"></i>Google Gemini AI
-                </h6>
-                <div class="mb-3">
-                    <label class="form-label fw-semibold">Gemini API Key:</label>
-                    <div class="input-group">
-                        <input type="password" class="form-control" name="gemini_api_key" 
-                               placeholder="{% if settings.gemini_api_key_set %}{{ settings.gemini_api_key_masked }}{% else %}Nhập API Key...{% endif %}">
-                        <button class="btn btn-outline-secondary" type="button" id="btnToggleKey">
-                            <i class="bi bi-eye"></i>
-                        </button>
+                <!-- Multi-AI Provider Architecture (Phase 3) -->
+                <div class="mb-4 p-3 rounded border border-primary-subtle bg-dark-subtle">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="fw-bold text-white mb-0">
+                            <i class="bi bi-cpu-fill text-primary me-2"></i>Nhà Cung Cấp AI Hoạt Động (Active AI Provider)
+                        </h6>
+                        <span class="badge bg-primary">Phase 3 Multi-AI</span>
                     </div>
-                    <div class="form-text text-secondary">
-                        {% if settings.gemini_api_key_set %}
-                        <span class="text-success"><i class="bi bi-check-circle"></i> Đã cấu hình API Key: {{ settings.gemini_api_key_masked }}</span>
-                        {% else %}
-                        <span class="text-warning"><i class="bi bi-exclamation-triangle"></i> Chưa có API Key. Vui lòng nhập để sử dụng tính năng AI.</span>
-                        {% endif %}
+                    <p class="small text-secondary mb-3">
+                        Chọn provider chính được sử dụng cho toàn bộ tác vụ Nghiên Cứu và Sản Xuất Content.
+                        Mọi provider đều tuân thủ nguyên tắc BYOK (Khách hàng dùng API Key riêng) và Invariant tiết kiệm quota.
+                    </p>
+                    
+                    <div class="row g-2" id="activeProviderGrid">
+                        {% for pid in ['gemini', 'openai', 'anthropic', 'groq', 'openrouter'] %}
+                        {% set prov = settings.ai_providers.providers[pid] %}
+                        <div class="col-md-6 col-xl-4">
+                            <label class="card h-100 border p-2 cursor-pointer provider-select-card {% if settings.active_ai_provider == pid %}border-primary bg-primary-subtle bg-opacity-10{% else %}border-secondary-subtle{% endif %}" for="rad_{{ pid }}">
+                                <div class="d-flex align-items-start gap-2">
+                                    <input class="form-check-input mt-1" type="radio" name="active_ai_provider" id="rad_{{ pid }}" value="{{ pid }}" {% if settings.active_ai_provider == pid %}checked{% endif %}>
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <span class="fw-semibold text-white small">{{ prov.name }}</span>
+                                            {% if pid == 'gemini' %}<span class="badge bg-secondary-subtle text-secondary border small" style="font-size: 0.65rem;">Mặc định</span>{% endif %}
+                                        </div>
+                                        <div class="mt-1 d-flex gap-1 flex-wrap">
+                                            {% if prov.is_gateway %}
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle" style="font-size: 0.7rem;">Gateway</span>
+                                            {% else %}
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">Direct BYOK</span>
+                                            {% endif %}
+                                            
+                                            {% if prov.configured %}
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 0.7rem;">
+                                                <i class="bi bi-check-circle me-1"></i>Đã cấu hình
+                                            </span>
+                                            {% else %}
+                                            <span class="badge bg-warning-subtle text-warning border border-warning-subtle" style="font-size: 0.7rem;">
+                                                Chưa cấu hình
+                                            </span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="text-secondary small mt-1" style="font-size: 0.75rem;">Model: <code>{{ prov.model }}</code></div>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                        {% endfor %}
                     </div>
                 </div>
 
+                <!-- DIRECT BYOK PROVIDERS SECTION -->
                 <div class="mb-4">
-                    <label class="form-label fw-semibold">Gemini Model:</label>
-                    <input type="text" class="form-control" name="gemini_model" value="{{ settings.gemini_model }}">
-                    <div class="form-text text-secondary">Ví dụ: gemini-3.8-flash</div>
+                    <div class="d-flex justify-content-between align-items-center border-bottom border-secondary-subtle pb-2 mb-3">
+                        <h6 class="fw-bold text-white mb-0">
+                            <i class="bi bi-lightning-charge-fill text-warning me-2"></i>Nhà Cung Cấp Trực Tiếp (Direct BYOK)
+                        </h6>
+                        <span class="badge bg-secondary-subtle text-secondary small">Độ trễ thấp • Kết nối trực tiếp</span>
+                    </div>
+
+                    <!-- Accordion for Direct BYOK Providers -->
+                    <div class="accordion mb-3" id="accordionDirectProviders">
+                        {% for pid in ['gemini', 'openai', 'anthropic', 'groq'] %}
+                        {% set prov = settings.ai_providers.providers[pid] %}
+                        <div class="accordion-item bg-transparent border border-secondary-subtle mb-2 rounded overflow-hidden">
+                            <h2 class="accordion-header" id="heading_{{ pid }}">
+                                <button class="accordion-button bg-dark text-white {% if settings.active_ai_provider != pid %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ pid }}" aria-expanded="{% if settings.active_ai_provider == pid %}true{% else %}false{% endif %}" aria-controls="collapse_{{ pid }}">
+                                    <div class="d-flex align-items-center justify-content-between w-100 me-3">
+                                        <div class="d-flex align-items-center gap-2">
+                                            {% if pid == 'gemini' %}<i class="bi bi-stars text-primary"></i>{% endif %}
+                                            {% if pid == 'openai' %}<i class="bi bi-robot text-success"></i>{% endif %}
+                                            {% if pid == 'anthropic' %}<i class="bi bi-chat-square-quote text-warning"></i>{% endif %}
+                                            {% if pid == 'groq' %}<i class="bi bi-speedometer2 text-danger"></i>{% endif %}
+                                            <span class="fw-semibold">{{ prov.name }}</span>
+                                            {% if pid == 'gemini' %}<span class="badge bg-secondary-subtle text-secondary border small">Default</span>{% endif %}
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            {% if prov.configured %}
+                                            <span class="badge bg-success-subtle text-success small"><i class="bi bi-check-circle me-1"></i>{{ prov.key_hint }}</span>
+                                            {% else %}
+                                            <span class="badge bg-warning-subtle text-warning small">Chưa có Key</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </button>
+                            </h2>
+                            <div id="collapse_{{ pid }}" class="accordion-collapse collapse {% if settings.active_ai_provider == pid %}show{% endif %}" aria-labelledby="heading_{{ pid }}" data-bs-parent="#accordionDirectProviders">
+                                <div class="accordion-body bg-dark-subtle border-top border-secondary-subtle p-3">
+                                    <!-- API Key Field (Blank password-style, zero raw key exposed) -->
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-semibold text-light">{{ prov.name }} API Key:</label>
+                                        <div class="input-group">
+                                            <input type="password" class="form-control font-monospace" name="{{ pid }}_api_key" id="input_key_{{ pid }}" value="" autocomplete="new-password" placeholder="{% if prov.configured %}Đã lưu (để trống để giữ nguyên: {{ prov.key_hint }}){% else %}Nhập API Key...{% endif %}">
+                                            <button class="btn btn-outline-secondary btn-toggle-pwd" type="button" data-target="input_key_{{ pid }}" title="Hiện/Ẩn Key">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text text-secondary small">
+                                            {% if prov.configured %}
+                                            <span class="text-success"><i class="bi bi-shield-check me-1"></i>Key đã được lưu an toàn trong SQLite. Để trống để giữ nguyên; nhập mới để thay thế.</span>
+                                            {% else %}
+                                            <span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>Chưa cấu hình API Key. Nhập key để kích hoạt provider này.</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    <!-- Model Selection Field -->
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-semibold text-light">Mô hình (Model ID):</label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control font-monospace" name="{{ pid }}_model" id="input_model_{{ pid }}" value="{{ prov.model }}" list="datalist_{{ pid }}" placeholder="{{ prov.default_model }}">
+                                            <button class="btn btn-outline-info btn-discover-models" type="button" data-provider="{{ pid }}" title="Tải danh sách model có sẵn">
+                                                <i class="bi bi-arrow-repeat me-1"></i>Tải Models
+                                            </button>
+                                        </div>
+                                        <datalist id="datalist_{{ pid }}">
+                                            <option value="{{ prov.default_model }}"></option>
+                                        </datalist>
+                                        <div class="form-text text-secondary small">
+                                            Mặc định: <code>{{ prov.default_model }}</code>. Nhấn "Tải Models" để lấy danh sách thời gian thực (cache 60p, 0 token sinh text).
+                                        </div>
+                                    </div>
+
+                                    <!-- Per-Provider Test Connection Button -->
+                                    <div class="d-flex align-items-center gap-2 pt-2 border-top border-secondary-subtle">
+                                        <button type="button" class="btn btn-sm btn-outline-primary btn-test-provider" data-provider="{{ pid }}">
+                                            <i class="bi bi-plug me-1"></i>Kiểm Tra Kết Nối {{ prov.name }}
+                                            <span class="spinner-border spinner-border-sm ms-1 d-none"></span>
+                                        </button>
+                                        <div class="provider-test-status small" id="test_status_{{ pid }}"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- CLOUD AI GATEWAY SECTION (OpenRouter) -->
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between align-items-center border-bottom border-secondary-subtle pb-2 mb-3">
+                        <h6 class="fw-bold text-white mb-0">
+                            <i class="bi bi-diagram-3-fill text-info me-2"></i>Cổng AI Đám Mây (Cloud AI Gateway)
+                        </h6>
+                        <span class="badge bg-info-subtle text-info small">Định tuyến đa mô hình • 1 Key duy nhất</span>
+                    </div>
+
+                    {% set prov = settings.ai_providers.providers['openrouter'] %}
+                    <div class="card border-info-subtle bg-dark-subtle p-3 mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-router text-info fs-5"></i>
+                                <span class="fw-semibold text-white">OpenRouter Gateway</span>
+                            </div>
+                            <div>
+                                {% if prov.configured %}
+                                <span class="badge bg-success-subtle text-success"><i class="bi bi-check-circle me-1"></i>{{ prov.key_hint }}</span>
+                                {% else %}
+                                <span class="badge bg-warning-subtle text-warning">Chưa có Key</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="small text-secondary mb-3">
+                            OpenRouter là cổng AI đám mây cho phép truy cập Claude 3.5, GPT-4o, Llama 3, DeepSeek, Qwen... qua một API Key duy nhất.
+                        </p>
+
+                        <!-- OpenRouter API Key (Blank password-style, zero raw key exposed) -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold text-light">OpenRouter API Key:</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control font-monospace" name="openrouter_api_key" id="input_key_openrouter" value="" autocomplete="new-password" placeholder="{% if prov.configured %}Đã lưu (để trống để giữ nguyên: {{ prov.key_hint }}){% else %}Nhập OpenRouter API Key (sk-or-...)...{% endif %}">
+                                <button class="btn btn-outline-secondary btn-toggle-pwd" type="button" data-target="input_key_openrouter" title="Hiện/Ẩn Key">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                            <div class="form-text text-secondary small">
+                                {% if prov.configured %}
+                                <span class="text-success"><i class="bi bi-shield-check me-1"></i>Key đã lưu an toàn trong SQLite. Để trống để giữ nguyên; nhập mới để thay thế.</span>
+                                {% else %}
+                                <span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>Chưa cấu hình. Nhập key dạng <code>sk-or-v1-...</code> từ openrouter.ai</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- OpenRouter Model -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold text-light">Mô hình OpenRouter (Model ID):</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control font-monospace" name="openrouter_model" id="input_model_openrouter" value="{{ prov.model }}" list="datalist_openrouter" placeholder="{{ prov.default_model }}">
+                                <button class="btn btn-outline-info btn-discover-models" type="button" data-provider="openrouter" title="Tải danh sách model có sẵn">
+                                    <i class="bi bi-arrow-repeat me-1"></i>Tải Models
+                                </button>
+                            </div>
+                            <datalist id="datalist_openrouter">
+                                <option value="anthropic/claude-3.5-sonnet"></option>
+                                <option value="openai/gpt-4o-mini"></option>
+                                <option value="meta-llama/llama-3.3-70b-instruct"></option>
+                                <option value="google/gemini-2.0-flash-001"></option>
+                                <option value="deepseek/deepseek-chat"></option>
+                            </datalist>
+                            <div class="form-text text-secondary small">
+                                Mặc định: <code>{{ prov.default_model }}</code>. Định dạng: <code>provider/model-name</code>.
+                            </div>
+                        </div>
+
+                        <!-- Test Connection -->
+                        <div class="d-flex align-items-center gap-2 pt-2 border-top border-secondary-subtle">
+                            <button type="button" class="btn btn-sm btn-outline-info btn-test-provider" data-provider="openrouter">
+                                <i class="bi bi-plug me-1"></i>Kiểm Tra Kết Nối OpenRouter
+                                <span class="spinner-border spinner-border-sm ms-1 d-none"></span>
+                            </button>
+                            <div class="provider-test-status small" id="test_status_openrouter"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Research Parameters -->
@@ -435,16 +623,121 @@
         }
     });
 
-    // ── API Key toggle ────────────────────────────────────────────
-    document.getElementById('btnToggleKey')?.addEventListener('click', function() {
-        const input = document.querySelector('input[name="gemini_api_key"]');
-        if (input.type === 'password') {
-            input.type = 'text';
-            this.innerHTML = '<i class="bi bi-eye-slash"></i>';
-        } else {
-            input.type = 'password';
-            this.innerHTML = '<i class="bi bi-eye"></i>';
-        }
+    // ── Universal API Key show/hide toggle ───────────────────────
+    document.querySelectorAll('.btn-toggle-pwd').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const targetId = this.getAttribute('data-target');
+            const input = document.getElementById(targetId);
+            if (!input) return;
+            const icon = this.querySelector('i');
+            if (input.type === 'password') {
+                input.type = 'text';
+                if (icon) icon.className = 'bi bi-eye-slash';
+            } else {
+                input.type = 'password';
+                if (icon) icon.className = 'bi bi-eye';
+            }
+        });
+    });
+
+    // ── Radio card selection visual styling ──────────────────────
+    document.querySelectorAll('input[name="active_ai_provider"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            document.querySelectorAll('.provider-select-card').forEach(card => {
+                card.classList.remove('border-primary', 'bg-primary-subtle', 'bg-opacity-10');
+                card.classList.add('border-secondary-subtle');
+            });
+            const parentCard = this.closest('.provider-select-card');
+            if (parentCard) {
+                parentCard.classList.remove('border-secondary-subtle');
+                parentCard.classList.add('border-primary', 'bg-primary-subtle', 'bg-opacity-10');
+            }
+        });
+    });
+
+    // ── Multi-AI Test Connection (Zero generation tokens consumed) ─
+    document.querySelectorAll('.btn-test-provider').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const providerId = this.getAttribute('data-provider');
+            const statusDiv = document.getElementById(`test_status_${providerId}`);
+            const spinner = this.querySelector('.spinner-border');
+            
+            this.disabled = true;
+            if (spinner) spinner.classList.remove('d-none');
+            if (statusDiv) {
+                statusDiv.innerHTML = '<span class="text-info"><i class="spinner-border spinner-border-sm me-1"></i>Đang kiểm tra kết nối...</span>';
+            }
+
+            try {
+                const resp = await fetch('/api/settings/ai/test-connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider_id: providerId })
+                });
+                const data = await resp.json();
+
+                if (data.connected) {
+                    if (statusDiv) {
+                        statusDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message || 'Kết nối thành công!'}</span>`;
+                    }
+                } else {
+                    const errDetail = data.message || 'Không thể kết nối';
+                    if (statusDiv) {
+                        statusDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>${errDetail}</span>`;
+                    }
+                }
+
+                // If testing Gemini, also refresh status box
+                if (providerId === 'gemini') {
+                    await loadSettingsStatus();
+                }
+            } catch (err) {
+                if (statusDiv) {
+                    statusDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>Lỗi kết nối: ${err.message}</span>`;
+                }
+            } finally {
+                this.disabled = false;
+                if (spinner) spinner.classList.add('d-none');
+            }
+        });
+    });
+
+    // ── Multi-AI Dynamic Model Discovery (60-min in-memory cache) ─
+    document.querySelectorAll('.btn-discover-models').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const providerId = this.getAttribute('data-provider');
+            const datalist = document.getElementById(`datalist_${providerId}`);
+            const icon = this.querySelector('i');
+            
+            this.disabled = true;
+            if (icon) icon.className = 'spinner-border spinner-border-sm me-1';
+
+            try {
+                const resp = await fetch(`/api/settings/ai/models?provider_id=${providerId}`);
+                const data = await resp.json();
+                if (data.success && Array.isArray(data.models) && data.models.length > 0) {
+                    if (datalist) {
+                        datalist.innerHTML = '';
+                        data.models.forEach(m => {
+                            const opt = document.createElement('option');
+                            const mId = typeof m === 'string' ? m : (m.id || '');
+                            const mName = typeof m === 'string' ? m : (m.name || m.id || '');
+                            opt.value = mId;
+                            opt.label = mName !== mId ? mName : '';
+                            datalist.appendChild(opt);
+                        });
+                    }
+                    alert(`Đã tải thành công ${data.models.length} model cho ${providerId.toUpperCase()}! Hãy chọn trong gợi ý của ô nhập.`);
+                } else {
+                    alert(data.error || 'Chưa thể tải danh sách model. Hãy kiểm tra API Key hoặc dùng model mặc định.');
+                }
+            } catch (e) {
+                alert(`Lỗi khi tải model: ${e.message}`);
+            } finally {
+                this.disabled = false;
+                if (icon) icon.className = 'bi bi-arrow-repeat me-1';
+            }
+        });
     });
 
     document.getElementById('btnTestTTS')?.addEventListener('click', async function() {

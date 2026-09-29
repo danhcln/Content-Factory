@@ -10,11 +10,21 @@ from typing import Optional, Any
 from dotenv import load_dotenv, set_key
 
 from app.database import get_db, BASE_DIR, TEMP_DIR
-from app.config import get_gemini_model, get_gemini_api_key, DEFAULT_GEMINI_MODEL
+from app.config import (
+    DEFAULT_GEMINI_MODEL, get_gemini_model, get_gemini_api_key,
+    DEFAULT_OPENAI_MODEL, get_openai_model, get_openai_api_key,
+    DEFAULT_ANTHROPIC_MODEL, get_anthropic_model, get_anthropic_api_key,
+    DEFAULT_GROQ_MODEL, get_groq_model, get_groq_api_key,
+    DEFAULT_OPENROUTER_MODEL, get_openrouter_model, get_openrouter_api_key,
+    DEFAULT_ACTIVE_AI_PROVIDER, get_active_ai_provider,
+    mask_api_key, get_key_hint, SUPPORTED_AI_PROVIDERS
+)
 from app.models import Setting
 from app.services.usage_tracker import GeminiUsageTracker
 from app.services.subtitle_service import SubtitleService
 from app.services.tts.vieneu_provider import VieNeuProvider
+from app.services.ai.providers.common import sanitize_secrets
+from app.services.ai import get_ai_manager
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "app" / "templates"))
 router = APIRouter(tags=["settings"])
@@ -38,6 +48,114 @@ class PreviewVoicePayload(BaseModel):
     text: Optional[str] = "Xin chào, đây là giọng đọc thử nghiệm của hệ thống AI Content Factory."
 
 
+def save_provider_settings(db: Session, provider_id: str, submitted_key: str, submitted_model: str):
+    """
+    Persist provider key and model into SQLite Setting (runtime source).
+    - Blank or empty submitted_key preserves the existing key in SQLite.
+    - Non-empty, non-masked key explicitly replaces the stored key.
+    - If provider is Gemini, also syncs to .env for backward compatibility.
+    """
+    pid = provider_id.strip().lower()
+    if pid not in SUPPORTED_AI_PROVIDERS:
+        return
+
+    key_clean = submitted_key.strip() if submitted_key else ""
+    if key_clean and not key_clean.startswith("****") and "*" not in key_clean and not key_clean.startswith("••••"):
+        db_key = db.query(Setting).filter(Setting.key.in_([f"{pid}_api_key", f"{pid.upper()}_API_KEY"])).first()
+        if not db_key:
+            db_key = Setting(key=f"{pid}_api_key", value=key_clean, description=f"{pid.title()} API Key")
+            db.add(db_key)
+        else:
+            db_key.value = key_clean
+        if pid == "gemini":
+            set_key(str(ENV_FILE), "GEMINI_API_KEY", key_clean)
+
+    model_clean = submitted_model.strip() if submitted_model else ""
+    if model_clean:
+        db_model = db.query(Setting).filter(Setting.key.in_([f"{pid}_model", f"{pid.upper()}_MODEL"])).first()
+        if not db_model:
+            db_model = Setting(key=f"{pid}_model", value=model_clean, description=f"{pid.title()} AI Model")
+            db.add(db_model)
+        else:
+            db_model.value = model_clean
+        if pid == "gemini":
+            set_key(str(ENV_FILE), "GEMINI_MODEL", model_clean)
+
+
+def test_provider_connection_logic(provider_id: str, db: Optional[Session] = None) -> Dict[str, Any]:
+    """
+    Execute lightweight, zero-generation-token connection test for a provider.
+    Ensures secret sanitization on all messages and error descriptions.
+    """
+    pid = (provider_id or "gemini").strip().lower()
+    if pid not in SUPPORTED_AI_PROVIDERS:
+        return {
+            "success": False,
+            "provider": pid,
+            "provider_type": "unknown",
+            "configured": False,
+            "connected": False,
+            "configured_model": "",
+            "message": f"Nhà cung cấp AI '{pid}' không được hỗ trợ.",
+            "error_type": "unsupported_provider"
+        }
+
+    manager = get_ai_manager()
+    try:
+        report = manager.test_connection(provider_id=pid, db=db)
+        if not isinstance(report, dict):
+            report = {"connected": False, "message": str(report)}
+
+        connected = bool(report.get("connected", False) or report.get("success", False))
+        msg = str(report.get("message") or report.get("error") or "")
+        return {
+            "success": connected,
+            "provider": pid,
+            "provider_type": report.get("provider_type", "direct"),
+            "configured": bool(report.get("configured", False)),
+            "connected": connected,
+            "configured_model": report.get("configured_model", report.get("model", "")),
+            "message": sanitize_secrets(msg),
+            "error_type": report.get("error_type")
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "provider": pid,
+            "provider_type": "unknown",
+            "configured": False,
+            "connected": False,
+            "configured_model": "",
+            "message": sanitize_secrets(str(e)),
+            "error_type": "exception"
+        }
+
+
+def get_provider_models_logic(provider_id: str, db: Optional[Session] = None) -> Dict[str, Any]:
+    """
+    Retrieve discovered models for a provider via manager (utilizing ModelCatalogCache).
+    """
+    pid = (provider_id or "gemini").strip().lower()
+    if pid not in SUPPORTED_AI_PROVIDERS:
+        return {"success": False, "provider": pid, "models": [], "error": f"Nhà cung cấp '{pid}' không được hỗ trợ."}
+
+    manager = get_ai_manager()
+    try:
+        models = manager.list_models(provider_id=pid, db=db)
+        return {
+            "success": True,
+            "provider": pid,
+            "models": models
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "provider": pid,
+            "models": [],
+            "error": sanitize_secrets(str(e))
+        }
+
+
 def get_current_settings(db: Session = None):
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     raw_key = get_gemini_api_key(db)
@@ -56,9 +174,36 @@ def get_current_settings(db: Session = None):
 
     from app.services.ffmpeg_utils import get_ffmpeg_path, get_ffprobe_path, check_ffmpeg_available
 
+    active_prov = get_active_ai_provider(db)
+    providers_info = {}
+    for pid, name, ptype, is_gtw, key_fn, model_fn, def_model in [
+        ("gemini", "Google Gemini", "direct", False, get_gemini_api_key, get_gemini_model, DEFAULT_GEMINI_MODEL),
+        ("openai", "OpenAI", "direct", False, get_openai_api_key, get_openai_model, DEFAULT_OPENAI_MODEL),
+        ("anthropic", "Anthropic Claude", "direct", False, get_anthropic_api_key, get_anthropic_model, DEFAULT_ANTHROPIC_MODEL),
+        ("groq", "Groq", "direct", False, get_groq_api_key, get_groq_model, DEFAULT_GROQ_MODEL),
+        ("openrouter", "OpenRouter", "gateway", True, get_openrouter_api_key, get_openrouter_model, DEFAULT_OPENROUTER_MODEL),
+    ]:
+        raw_k = key_fn(db)
+        providers_info[pid] = {
+            "provider_id": pid,
+            "name": name,
+            "provider_type": ptype,
+            "is_gateway": is_gtw,
+            "configured": bool(raw_k),
+            "key_hint": get_key_hint(raw_k),
+            "model": model_fn(db),
+            "default_model": def_model
+        }
+
     return {
+        "active_ai_provider": active_prov,
+        "ai_providers": {
+            "active_provider": active_prov,
+            "providers": providers_info
+        },
         "gemini_api_key_masked": masked_key,
         "gemini_api_key_set": bool(raw_key),
+        "gemini_key_hint": get_key_hint(raw_key),
         "gemini_model": get_gemini_model(db),
         "gemini_usage": usage_stats,
         "products_per_research": os.getenv("DEFAULT_PRODUCTS_COUNT", "10"),
@@ -104,8 +249,17 @@ def get_settings_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/settings", response_class=HTMLResponse)
 def save_settings(
     request: Request,
+    active_ai_provider: str = Form("gemini"),
     gemini_api_key: str = Form(""),
     gemini_model: str = Form(DEFAULT_GEMINI_MODEL),
+    openai_api_key: str = Form(""),
+    openai_model: str = Form(DEFAULT_OPENAI_MODEL),
+    anthropic_api_key: str = Form(""),
+    anthropic_model: str = Form(DEFAULT_ANTHROPIC_MODEL),
+    groq_api_key: str = Form(""),
+    groq_model: str = Form(DEFAULT_GROQ_MODEL),
+    openrouter_api_key: str = Form(""),
+    openrouter_model: str = Form(DEFAULT_OPENROUTER_MODEL),
     products_per_research: str = Form("10"),
     keywords_per_product: str = Form("3"),
     videos_per_product: str = Form("5"),
@@ -137,25 +291,22 @@ def save_settings(
     if not ENV_FILE.exists():
         ENV_FILE.touch()
 
-    # Only update API key if a non-masked new value is provided
-    if gemini_api_key and not gemini_api_key.startswith("****") and "*" not in gemini_api_key:
-        set_key(str(ENV_FILE), "GEMINI_API_KEY", gemini_api_key.strip())
-        db_key = db.query(Setting).filter(Setting.key == "gemini_api_key").first()
-        if not db_key:
-            db_key = Setting(key="gemini_api_key", value=gemini_api_key.strip(), description="Gemini API Key")
-            db.add(db_key)
+    # 1. Active AI Provider: SQLite Setting is the runtime source
+    active_clean = active_ai_provider.strip().lower()
+    if active_clean in SUPPORTED_AI_PROVIDERS:
+        db_act = db.query(Setting).filter(Setting.key.in_(["active_ai_provider", "ACTIVE_AI_PROVIDER"])).first()
+        if not db_act:
+            db_act = Setting(key="active_ai_provider", value=active_clean, description="Active AI Provider")
+            db.add(db_act)
         else:
-            db_key.value = gemini_api_key.strip()
+            db_act.value = active_clean
 
-    model_clean = gemini_model.strip() or DEFAULT_GEMINI_MODEL
-    set_key(str(ENV_FILE), "GEMINI_MODEL", model_clean)
-
-    db_model = db.query(Setting).filter(Setting.key.in_(["gemini_model", "GEMINI_MODEL"])).first()
-    if not db_model:
-        db_model = Setting(key="gemini_model", value=model_clean, description="Gemini AI Model")
-        db.add(db_model)
-    else:
-        db_model.value = model_clean
+    # 2. AI Provider Keys & Models (Blank key preserves existing; new key replaces)
+    save_provider_settings(db, "gemini", gemini_api_key, gemini_model)
+    save_provider_settings(db, "openai", openai_api_key, openai_model)
+    save_provider_settings(db, "anthropic", anthropic_api_key, anthropic_model)
+    save_provider_settings(db, "groq", groq_api_key, groq_model)
+    save_provider_settings(db, "openrouter", openrouter_api_key, openrouter_model)
     db.commit()
 
     set_key(str(ENV_FILE), "DEFAULT_PRODUCTS_COUNT", products_per_research.strip())
@@ -317,3 +468,70 @@ def api_gemini_status(db: Session = Depends(get_db)):
         "successful_requests": usage_data["successful_requests"],
         "quota_errors": usage_data["quota_errors"],
     }
+
+
+# ==============================================================================
+# MULTI-AI PHASE 3 SETTINGS & DIAGNOSTICS ENDPOINTS
+# ==============================================================================
+
+@router.post("/api/settings/ai/test-connection")
+async def api_test_ai_connection(request: Request, db: Session = Depends(get_db)):
+    """
+    Test connection for a specified AI provider (Gemini, OpenAI, Anthropic, Groq, OpenRouter).
+    Consumes ZERO generation tokens and sanitizes error responses.
+    """
+    provider_id = "gemini"
+    try:
+        data = await request.json()
+        if isinstance(data, dict):
+            provider_id = data.get("provider_id", data.get("provider", "gemini"))
+    except Exception:
+        pass
+
+    if not provider_id or provider_id == "gemini":
+        qp = request.query_params.get("provider_id") or request.query_params.get("provider")
+        if qp:
+            provider_id = qp
+
+    return JSONResponse(content=test_provider_connection_logic(provider_id=provider_id, db=db))
+
+
+@router.get("/api/settings/ai/models")
+def api_get_ai_models(provider: Optional[str] = None, provider_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Dynamically retrieve available models for a provider with 60-min in-memory caching.
+    """
+    pid = (provider_id or provider or "gemini").strip().lower()
+    return JSONResponse(content=get_provider_models_logic(provider_id=pid, db=db))
+
+
+@router.get("/api/settings/ai/status")
+def api_get_ai_status(db: Session = Depends(get_db)):
+    """
+    Return non-sensitive status snapshot of all AI providers and current active provider.
+    Guarantees zero raw credentials exposed.
+    """
+    active_prov = get_active_ai_provider(db)
+    providers_status = {}
+    for pid, name, ptype, is_gtw, key_fn, model_fn in [
+        ("gemini", "Google Gemini", "direct", False, get_gemini_api_key, get_gemini_model),
+        ("openai", "OpenAI", "direct", False, get_openai_api_key, get_openai_model),
+        ("anthropic", "Anthropic Claude", "direct", False, get_anthropic_api_key, get_anthropic_model),
+        ("groq", "Groq", "direct", False, get_groq_api_key, get_groq_model),
+        ("openrouter", "OpenRouter", "gateway", True, get_openrouter_api_key, get_openrouter_model),
+    ]:
+        raw_k = key_fn(db)
+        providers_status[pid] = {
+            "provider_id": pid,
+            "name": name,
+            "provider_type": ptype,
+            "is_gateway": is_gtw,
+            "configured": bool(raw_k),
+            "key_hint": get_key_hint(raw_k),
+            "model": model_fn(db)
+        }
+    return JSONResponse(content={
+        "success": True,
+        "active_provider": active_prov,
+        "providers": providers_status
+    })

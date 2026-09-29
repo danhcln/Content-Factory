@@ -1,6 +1,7 @@
 import os
 import logging
 from pathlib import Path
+from typing import Optional
 try:
     from dotenv import load_dotenv
 except ImportError:
@@ -21,12 +22,66 @@ logger = logging.getLogger("app.config")
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = BASE_DIR / ".env"
 
+DEFAULT_ACTIVE_AI_PROVIDER = "gemini"
+
 # Production default model: gemini-3.8-flash
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
 DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_OPENROUTER_MODEL = "anthropic/claude-3.5-sonnet"
+
+SUPPORTED_AI_PROVIDERS = ["gemini", "openai", "anthropic", "groq", "openrouter"]
+
+
+def mask_api_key(key: Optional[str] = None) -> str:
+    """Mask key securely for safe logging/display. Returns empty string if key is empty."""
+    if not key:
+        return ""
+    k = str(key).strip()
+    if len(k) > 8:
+        return k[:4] + "*" * (len(k) - 8) + k[-4:]
+    return "********"
+
+
+def get_key_hint(key: Optional[str] = None) -> str:
+    """
+    Return a non-sensitive key hint (last 4 characters only).
+    Never exposes sufficient characters to compromise security.
+    """
+    if not key:
+        return ""
+    k = str(key).strip()
+    if len(k) >= 8:
+        return f"••••{k[-4:]}"
+    return "••••••••"
+
+
+def get_active_ai_provider(db=None) -> str:
+    """
+    Single source of truth for active AI provider.
+    Priority:
+    1. SQLite settings table ('active_ai_provider' or 'ACTIVE_AI_PROVIDER') if present and valid.
+    2. Environment variable ACTIVE_AI_PROVIDER in .env.
+    3. Production default: DEFAULT_ACTIVE_AI_PROVIDER ('gemini').
+    """
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["active_ai_provider", "ACTIVE_AI_PROVIDER"])).first()
+            if rec and rec.value and rec.value.strip():
+                val = rec.value.strip().lower()
+                if val in SUPPORTED_AI_PROVIDERS:
+                    return val
+        except Exception as e:
+            logger.debug(f"Could not read active provider from db settings: {e}")
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    env_provider = os.getenv("ACTIVE_AI_PROVIDER", "").strip().lower()
+    if env_provider in SUPPORTED_AI_PROVIDERS:
+        return env_provider
+
+    return DEFAULT_ACTIVE_AI_PROVIDER
 
 
 def get_gemini_model(db=None) -> str:

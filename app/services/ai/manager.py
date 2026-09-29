@@ -65,9 +65,13 @@ class AIProviderManager:
     def get_active_provider(self, db: Optional[Session] = None) -> AIProvider:
         """
         Resolve the active provider.
-        Defaults to 'gemini'. Supports ACTIVE_AI_PROVIDER env var or db setting override.
+        Priority:
+        1. SQLite Setting 'active_ai_provider' (runtime source).
+        2. Environment variable ACTIVE_AI_PROVIDER (bootstrap/fallback).
+        3. Default 'gemini'.
         """
-        active_id = os.getenv("ACTIVE_AI_PROVIDER", self.DEFAULT_PROVIDER_ID).strip().lower()
+        from app.config import get_active_ai_provider
+        active_id = get_active_ai_provider(db=db)
         if active_id not in self._providers:
             active_id = self.DEFAULT_PROVIDER_ID
         return self.get_provider(active_id)
