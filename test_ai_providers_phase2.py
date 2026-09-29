@@ -44,6 +44,7 @@ from app.services.ai.providers.openai import OpenAIProvider
 from app.services.ai.providers.anthropic import AnthropicProvider
 from app.services.ai.providers.groq import GroqProvider
 from app.services.ai.providers.openrouter import OpenRouterProvider
+from app.services.ai.providers.mwapi import MWAPIProvider
 from app.services.ai.providers.common import (
     sanitize_secrets,
     global_model_cache,
@@ -97,6 +98,7 @@ class TestMultiAIPhase2Architecture(unittest.TestCase):
             (AnthropicProvider(), "anthropic", "Anthropic Claude", "direct"),
             (GroqProvider(), "groq", "Groq", "direct"),
             (OpenRouterProvider(), "openrouter", "OpenRouter", "gateway"),
+            (MWAPIProvider(), "mwapi", "MWAPI Gateway", "gateway"),
         ]
         for p, expected_id, expected_name, expected_type in providers:
             self.assertIsInstance(p, AIProvider)
@@ -110,12 +112,12 @@ class TestMultiAIPhase2Architecture(unittest.TestCase):
             self.assertTrue(hasattr(p, "get_last_execution_metadata"))
 
     def test_02_manager_registers_exact_five_providers(self):
-        """AIProviderManager registers exactly the 5 official cloud providers."""
+        """AIProviderManager registers the official cloud providers (now 6 with MWAPI)."""
         mgr = AIProviderManager()
         registered = mgr.list_registered_providers()
-        self.assertEqual(len(registered), 5)
+        self.assertEqual(len(registered), 6)
         p_ids = [p["provider_id"] for p in registered]
-        self.assertEqual(sorted(p_ids), ["anthropic", "gemini", "groq", "openai", "openrouter"])
+        self.assertEqual(sorted(p_ids), ["anthropic", "gemini", "groq", "mwapi", "openai", "openrouter"])
 
         # Default provider must remain gemini
         self.assertEqual(mgr.DEFAULT_PROVIDER_ID, "gemini")

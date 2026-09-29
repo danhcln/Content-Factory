@@ -26,6 +26,7 @@ from app.services.ai.providers.openai import OpenAIProvider
 from app.services.ai.providers.anthropic import AnthropicProvider
 from app.services.ai.providers.groq import GroqProvider
 from app.services.ai.providers.openrouter import OpenRouterProvider
+from app.services.ai.providers.mwapi import MWAPIProvider
 from app.config import (
     get_ai_fallback_enabled,
     get_ai_fallback_providers,
@@ -46,6 +47,7 @@ def get_provider_key_configured(provider_id: str, db: Optional[Session] = None) 
         get_anthropic_api_key,
         get_groq_api_key,
         get_openrouter_api_key,
+        get_mwapi_api_key,
     )
     pid = (provider_id or "").strip().lower()
     if pid == "gemini":
@@ -58,6 +60,8 @@ def get_provider_key_configured(provider_id: str, db: Optional[Session] = None) 
         return bool(get_groq_api_key(db))
     elif pid == "openrouter":
         return bool(get_openrouter_api_key(db))
+    elif pid == "mwapi":
+        return bool(get_mwapi_api_key(db))
     return False
 
 
@@ -77,12 +81,13 @@ class AIProviderManager:
     def __init__(self):
         self._providers: Dict[str, AIProvider] = {}
         self._last_execution_meta: Optional[Dict[str, Any]] = None
-        # Register the 5 official cloud providers
+        # Register the 6 official cloud and gateway providers
         self.register_provider(GeminiProvider())
         self.register_provider(OpenAIProvider())
         self.register_provider(AnthropicProvider())
         self.register_provider(GroqProvider())
         self.register_provider(OpenRouterProvider())
+        self.register_provider(MWAPIProvider())
 
     def register_provider(self, provider: AIProvider) -> None:
         """Register an AI provider instance."""

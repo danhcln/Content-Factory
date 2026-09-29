@@ -16,6 +16,7 @@ from app.config import (
     DEFAULT_ANTHROPIC_MODEL, LEGACY_ANTHROPIC_DEFAULT_MODEL, get_anthropic_model, get_anthropic_api_key,
     DEFAULT_GROQ_MODEL, get_groq_model, get_groq_api_key,
     DEFAULT_OPENROUTER_MODEL, get_openrouter_model, get_openrouter_api_key,
+    DEFAULT_MWAPI_MODEL, get_mwapi_model, get_mwapi_api_key,
     DEFAULT_ACTIVE_AI_PROVIDER, get_active_ai_provider,
     mask_api_key, get_key_hint, SUPPORTED_AI_PROVIDERS,
     get_ai_fallback_enabled, get_ai_fallback_providers, get_ai_fallback_on_quota,
@@ -241,6 +242,7 @@ def get_current_settings(db: Session = None):
         ("anthropic", "Anthropic Claude", "direct", False, get_anthropic_api_key, get_anthropic_model, DEFAULT_ANTHROPIC_MODEL),
         ("groq", "Groq", "direct", False, get_groq_api_key, get_groq_model, DEFAULT_GROQ_MODEL),
         ("openrouter", "OpenRouter", "gateway", True, get_openrouter_api_key, get_openrouter_model, DEFAULT_OPENROUTER_MODEL),
+        ("mwapi", "MWAPI Gateway", "gateway", True, get_mwapi_api_key, get_mwapi_model, DEFAULT_MWAPI_MODEL),
     ]:
         raw_k = key_fn(db)
         providers_info[pid] = {
@@ -326,6 +328,8 @@ def save_settings(
     groq_model: str = Form(DEFAULT_GROQ_MODEL),
     openrouter_api_key: str = Form(""),
     openrouter_model: str = Form(DEFAULT_OPENROUTER_MODEL),
+    mwapi_api_key: str = Form(""),
+    mwapi_model: str = Form(DEFAULT_MWAPI_MODEL),
     ai_fallback_enabled: str = Form("off"),
     ai_fallback_providers: str = Form(""),
     ai_fallback_on_quota: str = Form("off"),
@@ -376,6 +380,7 @@ def save_settings(
     save_provider_settings(db, "anthropic", anthropic_api_key, anthropic_model)
     save_provider_settings(db, "groq", groq_api_key, groq_model)
     save_provider_settings(db, "openrouter", openrouter_api_key, openrouter_model)
+    save_provider_settings(db, "mwapi", mwapi_api_key, mwapi_model)
 
     # 3. Smart Routing & Cross-Provider Fallback Settings
     fallback_en_val = "true" if ai_fallback_enabled in ("on", "true", "1") else "false"

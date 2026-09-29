@@ -381,10 +381,10 @@ class TestMultiAIPhase1Architecture(unittest.TestCase):
         mgr = AIProviderManager()
         providers = mgr.list_registered_providers()
         provider_ids = [p["provider_id"] for p in providers]
-        self.assertEqual(len(providers), 5, "Exactly 5 providers must be registered in Phase 2.")
-        self.assertEqual(sorted(provider_ids), ["anthropic", "gemini", "groq", "openai", "openrouter"])
+        self.assertEqual(len(providers), 6, "Exactly 6 providers must be registered (including mwapi).")
+        self.assertEqual(sorted(provider_ids), ["anthropic", "gemini", "groq", "mwapi", "openai", "openrouter"])
 
-        for pid in ["gemini", "openai", "anthropic", "groq", "openrouter"]:
+        for pid in ["gemini", "openai", "anthropic", "groq", "openrouter", "mwapi"]:
             p = mgr.get_provider(pid)
             self.assertIsNotNone(p)
             self.assertEqual(p.provider_id, pid)

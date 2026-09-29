@@ -32,7 +32,7 @@
                     </p>
                     
                     <div class="row g-2" id="activeProviderGrid">
-                        {% for pid in ['gemini', 'openai', 'anthropic', 'groq', 'openrouter'] %}
+                        {% for pid in ['gemini', 'openai', 'anthropic', 'groq', 'openrouter', 'mwapi'] %}
                         {% set prov = settings.ai_providers.providers[pid] %}
                         <div class="col-md-6 col-xl-4">
                             <label class="card h-100 border p-2 cursor-pointer provider-select-card {% if settings.active_ai_provider == pid %}border-primary bg-primary-subtle bg-opacity-10{% else %}border-secondary-subtle{% endif %}" for="rad_{{ pid }}">
@@ -130,7 +130,7 @@
                         <input type="hidden" name="ai_fallback_providers" id="input_ai_fallback_providers" value="{{ settings.ai_fallback_providers|join(',') }}">
                         
                         <div class="list-group" id="fallbackCandidatesList">
-                            {% for pid in ['gemini', 'openai', 'anthropic', 'groq', 'openrouter'] %}
+                            {% for pid in ['gemini', 'openai', 'anthropic', 'groq', 'openrouter', 'mwapi'] %}
                             {% set prov = settings.ai_providers.providers[pid] %}
                             <div class="list-group-item bg-dark text-white border-secondary-subtle d-flex align-items-center justify-content-between p-2 mb-1 rounded {% if settings.active_ai_provider == pid %}opacity-50{% endif %}">
                                 <div class="form-check d-flex align-items-center gap-2 mb-0">
@@ -326,6 +326,70 @@
                                 <span class="spinner-border spinner-border-sm ms-1 d-none"></span>
                             </button>
                             <div class="provider-test-status small" id="test_status_openrouter"></div>
+                        </div>
+                    </div>
+
+                    {% set prov_mwapi = settings.ai_providers.providers['mwapi'] %}
+                    <div class="card border-info-subtle bg-dark-subtle p-3 mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-hdd-network text-info fs-5"></i>
+                                <span class="fw-semibold text-white">MWAPI Gateway</span>
+                            </div>
+                            <div>
+                                {% if prov_mwapi.configured %}
+                                <span class="badge bg-success-subtle text-success"><i class="bi bi-check-circle me-1"></i>{{ prov_mwapi.key_hint }}</span>
+                                {% else %}
+                                <span class="badge bg-warning-subtle text-warning">Chưa có Key</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <p class="small text-secondary mb-3">
+                            MWAPI Gateway (api.mwapi.dev) là cổng chuyển đổi API đăng ký (Sub2API) hỗ trợ Claude Sonnet, GPT, Gemini... qua giao thức OpenAI Chat Completions với API Key riêng từ mwapi.dev.
+                        </p>
+
+                        <!-- MWAPI API Key (Blank password-style, zero raw key exposed) -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold text-light">MWAPI API Key:</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control font-monospace" name="mwapi_api_key" id="input_key_mwapi" value="" autocomplete="new-password" placeholder="{% if prov_mwapi.configured %}Đã lưu (để trống để giữ nguyên: {{ prov_mwapi.key_hint }}){% else %}Nhập MWAPI API Key (sk-...)...{% endif %}">
+                                <button class="btn btn-outline-secondary btn-toggle-pwd" type="button" data-target="input_key_mwapi" title="Hiện/Ẩn Key">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                            <div class="form-text text-secondary small">
+                                {% if prov_mwapi.configured %}
+                                <span class="text-success"><i class="bi bi-shield-check me-1"></i>Key đã lưu an toàn trong SQLite. Để trống để giữ nguyên; nhập mới để thay thế.</span>
+                                {% else %}
+                                <span class="text-warning"><i class="bi bi-exclamation-circle me-1"></i>Chưa cấu hình. Nhập key dạng <code>sk-...</code> từ <a href="https://api.mwapi.dev/keys" target="_blank" class="text-info text-decoration-none">api.mwapi.dev/keys</a></span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- MWAPI Model -->
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold text-light">Mô hình MWAPI (Model ID):</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control font-monospace" name="mwapi_model" id="input_model_mwapi" value="{{ prov_mwapi.model }}" list="datalist_mwapi" placeholder="{{ prov_mwapi.default_model }}">
+                                <button class="btn btn-outline-info btn-discover-models" type="button" data-provider="mwapi" title="Tải danh sách model có sẵn">
+                                    <i class="bi bi-arrow-repeat me-1"></i>Tải Models
+                                </button>
+                            </div>
+                            <datalist id="datalist_mwapi">
+                                <option value="{{ prov_mwapi.default_model }}"></option>
+                            </datalist>
+                            <div class="form-text text-secondary small">
+                                Mặc định: <code>{{ prov_mwapi.default_model }}</code>. Nhấn "Tải Models" để tải danh sách model thực tế được gán cho API Key của bạn (0 token sinh text).
+                            </div>
+                        </div>
+
+                        <!-- Test Connection -->
+                        <div class="d-flex align-items-center gap-2 pt-2 border-top border-secondary-subtle">
+                            <button type="button" class="btn btn-sm btn-outline-info btn-test-provider" data-provider="mwapi">
+                                <i class="bi bi-plug me-1"></i>Kiểm Tra Kết Nối MWAPI Gateway
+                                <span class="spinner-border spinner-border-sm ms-1 d-none"></span>
+                            </button>
+                            <div class="provider-test-status small" id="test_status_mwapi"></div>
                         </div>
                     </div>
                 </div>

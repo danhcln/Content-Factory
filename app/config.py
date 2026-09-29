@@ -31,8 +31,9 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 LEGACY_ANTHROPIC_DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_OPENROUTER_MODEL = "anthropic/claude-3.5-sonnet"
+DEFAULT_MWAPI_MODEL = "claude-sonnet-4-6"
 
-SUPPORTED_AI_PROVIDERS = ["gemini", "openai", "anthropic", "groq", "openrouter"]
+SUPPORTED_AI_PROVIDERS = ["gemini", "openai", "anthropic", "groq", "openrouter", "mwapi"]
 
 
 def mask_api_key(key: Optional[str] = None) -> str:
@@ -276,6 +277,41 @@ def get_openrouter_api_key(db=None) -> str:
 
 
 # ==============================================================================
+# MWAPI GATEWAY CONFIGURATION
+# ==============================================================================
+
+def get_mwapi_model(db=None) -> str:
+    """Single source of truth for MWAPI Gateway Model."""
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["mwapi_model", "MWAPI_MODEL"])).first()
+            if rec and rec.value and rec.value.strip():
+                return rec.value.strip()
+        except Exception as e:
+            logger.debug(f"Could not read mwapi model from db: {e}")
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    env_model = os.getenv("MWAPI_MODEL", "").strip()
+    return env_model or DEFAULT_MWAPI_MODEL
+
+
+def get_mwapi_api_key(db=None) -> str:
+    """Single source of truth for MWAPI API Key."""
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["mwapi_api_key", "MWAPI_API_KEY"])).first()
+            if rec and rec.value and rec.value.strip():
+                return rec.value.strip()
+        except Exception as e:
+            logger.debug(f"Could not read mwapi api_key from db: {e}")
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    return os.getenv("MWAPI_API_KEY", "").strip()
+
+
+# ==============================================================================
 # MULTI-AI ROUTING & FALLBACK CONFIGURATION (Phase 4 & 5 Hardening)
 # ==============================================================================
 
@@ -413,6 +449,8 @@ def normalize_model_name(provider_id: str, model_name: Optional[str]) -> str:
         return DEFAULT_GROQ_MODEL
     elif pid == "openrouter":
         return DEFAULT_OPENROUTER_MODEL
+    elif pid == "mwapi":
+        return DEFAULT_MWAPI_MODEL
     return cleaned or "default"
 
 
@@ -430,6 +468,8 @@ def get_active_ai_model(db=None) -> str:
         m = get_groq_model(db)
     elif pid == "openrouter":
         m = get_openrouter_model(db)
+    elif pid == "mwapi":
+        m = get_mwapi_model(db)
     else:
         m = get_gemini_model(db)
     return normalize_model_name(pid, m)
