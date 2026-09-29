@@ -78,6 +78,17 @@
                             <option value="30" {% if product_count_val == 30 %}selected{% endif %}>30 sản phẩm</option>
                             <option value="50" {% if product_count_val == 50 %}selected{% endif %}>50 sản phẩm</option>
                         </select>
+                        <div class="form-text text-secondary small mt-1">
+                            <i class="bi bi-info-circle me-1"></i>Nhiều sản phẩm hơn (20, 30, 50) sẽ sử dụng nhiều AI token hơn.
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="freshResearch" name="fresh" value="true" {% if fresh_val %}checked{% endif %}>
+                        <label class="form-check-label text-secondary small" for="freshResearch">
+                            <strong>Tạo kết quả mới (Bỏ qua bộ nhớ đệm / Fresh Research)</strong>
+                            <span class="d-block text-muted" style="font-size: 0.8rem;">Nếu bỏ chọn, hệ thống tái sử dụng sản phẩm đã lưu cho ngành hàng này mà không tốn lượt gọi AI.</span>
+                        </label>
                     </div>
 
                     <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" id="btnRunResearch">
@@ -93,10 +104,12 @@
     <div class="col-lg-6">
         <div class="card mb-4">
             <div class="card-header">
-                <i class="bi bi-info-circle me-2 text-info"></i>Hướng Dẫn & Quy Tắc
+                <i class="bi bi-info-circle me-2 text-info"></i>Hướng Dẫn & Quy Tắc Tiết Kiệm (Low-Consumption)
             </div>
             <div class="card-body">
                 <ul class="text-secondary small mb-0">
+                    <li class="mb-2"><strong class="text-white">Quy tắc 1 Yêu cầu DUY NHẤT:</strong> Mỗi lần bấm chạy chỉ gửi đúng 1 yêu cầu AI duy nhất. Không tự động thử lại vô tận, không tự động fallback model phụ làm tốn thêm hạn mức.</li>
+                    <li class="mb-2"><strong class="text-white">Bộ nhớ đệm thông minh:</strong> Tự động tái sử dụng kết quả đã nghiên cứu trước đó nếu cùng ngành hàng (0 lượt gọi AI tốn thêm).</li>
                     <li class="mb-2"><strong class="text-white">Gemini AI</strong> tự động phân tích và tạo: Tên tiếng Việt, Tên tiếng Trung chuẩn thương mại, Từ khóa tìm kiếm tự nhiên trên Douyin, Góc nội dung (Content Angle) và Câu giật tít mở đầu (Hook).</li>
                     <li class="mb-2"><strong class="text-white">Mã sản phẩm</strong> được đánh số tự động dạng: <code class="text-info">P0001</code>, <code class="text-info">P0002</code>...</li>
                     <li>Sau khi tạo, các sản phẩm sẽ được lưu vào cơ sở dữ liệu SQLite và sẵn sàng cho bước tìm kiếm Douyin.</li>

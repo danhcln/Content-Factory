@@ -120,6 +120,29 @@ FALLBACK_CANDIDATE_PRIORITY: List[str] = [
 ]
 
 
+def get_research_max_output_tokens(count: int) -> int:
+    """
+    Research Output Token Budget:
+    Strictly bounded based on requested product count.
+    Each product object is ~70-90 tokens.
+    - 5 products:   800 tokens   (conservative budget for ~450 token payload)
+    - 10 products: 1,500 tokens (conservative budget for ~900 token payload)
+    - 20 products: 2,800 tokens (conservative budget for ~1,800 token payload)
+    - 30 products: 4,000 tokens (conservative budget for ~2,700 token payload)
+    - 50 products: 6,000 tokens (conservative budget for ~4,500 token payload)
+    """
+    if count <= 5:
+        return 800
+    elif count <= 10:
+        return 1500
+    elif count <= 20:
+        return 2800
+    elif count <= 30:
+        return 4000
+    else:
+        return 6000
+
+
 def discover_available_models(api_key: str, timeout: float = 10.0) -> List[str]:
     """
     Discover models supporting generateContent from Google API, cached for 1 hour.
@@ -416,7 +439,8 @@ class GeminiService:
         db: Optional[Session] = None,
         timeout: float = 60.0,
         max_retries: int = 2,
-        is_fallback: bool = False
+        is_fallback: bool = False,
+        max_output_tokens: Optional[int] = None
     ) -> str:
         """
         Execute call to a single model with bounded exponential backoff for 503 / 500+ and transient 429.
@@ -429,6 +453,10 @@ class GeminiService:
                 }
             ]
         }
+        if max_output_tokens is not None and max_output_tokens > 0:
+            payload["generationConfig"] = {
+                "maxOutputTokens": max_output_tokens
+            }
         headers = {
             "Content-Type": "application/json",
             "x-goog-api-key": api_key
@@ -664,7 +692,8 @@ class GeminiService:
         db: Optional[Session] = None,
         timeout: float = 60.0,
         max_retries: int = 2,
-        enable_fallback: bool = False
+        enable_fallback: bool = False,
+        max_output_tokens: Optional[int] = None
     ) -> str:
         """
         Production-grade Gemini API caller using configured GEMINI_MODEL with 503 smart fallback.
@@ -707,7 +736,8 @@ class GeminiService:
                 db=db,
                 timeout=timeout,
                 max_retries=max_retries,
-                is_fallback=False
+                is_fallback=False,
+                max_output_tokens=max_output_tokens
             )
             GeminiUsageTracker.record_success(db=db)
             GeminiStatusTracker.update_status("READY", db=db, http_code=200)
@@ -737,7 +767,8 @@ class GeminiService:
                     db=db,
                     timeout=timeout,
                     max_retries=1,
-                    is_fallback=True
+                    is_fallback=True,
+                    max_output_tokens=max_output_tokens
                 )
                 self.last_execution = {
                     "primary_model": model_name,
@@ -927,7 +958,15 @@ Example structure:
   }}
 ]
 """
-        raw_content = self.call_gemini(prompt, db=db, timeout=60.0, enable_fallback=True)
+        output_budget = get_research_max_output_tokens(count)
+        raw_content = self.call_gemini(
+            prompt,
+            db=db,
+            timeout=60.0,
+            max_retries=0,
+            enable_fallback=False,
+            max_output_tokens=output_budget
+        )
 
         cleaned = clean_json_response(raw_content)
         try:
@@ -938,18 +977,24 @@ Example structure:
             logger.error(f"Failed to parse Gemini JSON output: {cleaned[:200]} - Error: {e}")
             raise ValueError(f"Malformed AI response format: {str(e)}")
 
-        # Validate schema of items locally
+        # Validate schema of items locally in Python (zero AI calls)
         valid_items = []
         for it in items:
             if not isinstance(it, dict):
                 continue
+            name_vi = str(it.get("name_vietnamese", "")).strip()
+            if not name_vi:
+                continue
             valid_items.append({
-                "name_vietnamese": str(it.get("name_vietnamese", "")).strip(),
+                "name_vietnamese": name_vi,
                 "name_chinese": str(it.get("name_chinese", "")).strip(),
                 "douyin_keywords": str(it.get("douyin_keywords", "")).strip(),
                 "content_angle": str(it.get("content_angle", "")).strip(),
                 "hook": str(it.get("hook", "")).strip(),
             })
+
+        if not valid_items:
+            raise ValueError("Không có sản phẩm hợp lệ nào được tìm thấy trong phản hồi của AI.")
 
         return valid_items
 
