@@ -11,6 +11,7 @@ except ImportError:
 
 from app.services.ffmpeg_utils import run_ffprobe, run_ffmpeg
 from app.services.tts import TTSService
+from app.services.ai import get_ai_manager
 from app.services.gemini_service import GeminiService
 
 logger = logging.getLogger("app.services.audio_sync")
@@ -221,9 +222,15 @@ class AudioSyncEngine:
 
     MAX_REWRITE_ROUNDS = 2
 
-    def __init__(self, tts_service: Optional[TTSService] = None, gemini_service: Optional[GeminiService] = None):
+    def __init__(
+        self,
+        tts_service: Optional[TTSService] = None,
+        gemini_service: Optional[GeminiService] = None,
+        ai_provider: Optional[Any] = None
+    ):
         self.tts = tts_service or TTSService()
-        self.gemini = gemini_service or GeminiService()
+        self.ai = ai_provider or gemini_service or get_ai_manager()
+        self.gemini = self.ai
 
     def build_rewrite_prompt(
         self,
@@ -233,7 +240,7 @@ class AudioSyncEngine:
         product_name: str = ""
     ) -> str:
         """Expose prompt construction for failed segment rewrite."""
-        return self.gemini.build_rewrite_prompt(
+        return self.ai.build_rewrite_prompt(
             failed_segments=failed_segments,
             round_num=round_num,
             max_rounds=max_rounds,
@@ -327,10 +334,10 @@ class AudioSyncEngine:
             if not failed_segments or current_round > max_rewrite_rounds:
                 break
 
-            # Step 5: Batch Rewrite failed segments in ONE single Gemini request
+            # Step 5: Batch Rewrite failed segments in ONE single AI request
             logger.info(f"Rewriting {len(failed_segments)} failed segments in ONE request (Round {current_round}/{max_rewrite_rounds})...")
             try:
-                rewrite_res = self.gemini.rewrite_failed_segments(
+                rewrite_res = self.ai.rewrite_failed_segments(
                     failed_segments=failed_segments,
                     round_num=current_round,
                     max_rounds=max_rewrite_rounds,

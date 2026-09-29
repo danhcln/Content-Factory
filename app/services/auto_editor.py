@@ -36,6 +36,7 @@ from app.services.audio_sync import (
     measure_audio_duration
 )
 from app.services.subtitle_service import SubtitleService
+from app.services.ai import get_ai_manager
 from app.services.gemini_service import GeminiService, GeminiQuotaExceededError
 
 logger = logging.getLogger("app.services.auto_editor")
@@ -56,8 +57,9 @@ def validate_render_filter_graph(filter_complex: str) -> bool:
 
 
 class AutoEditorService:
-    def __init__(self):
-        self.gemini = GeminiService()
+    def __init__(self, ai_provider: Optional[Any] = None):
+        self.ai = ai_provider or get_ai_manager()
+        self.gemini = self.ai
         self.sync_engine = AudioSyncEngine()
 
     def get_work_dir(self, video_id: str) -> Path:
@@ -267,7 +269,7 @@ class AutoEditorService:
         }
 
         try:
-            res = self.gemini.generate_timed_script(
+            res = self.ai.generate_timed_script(
                 video_duration=duration,
                 segments=plan["segments"],
                 product_info=prod_info,

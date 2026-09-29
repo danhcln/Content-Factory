@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models import Video, Product, Voice
+from app.services.ai import get_ai_manager, AIQuotaExceededError
 from app.services.gemini_service import (
     GeminiService,
     get_api_key,
@@ -143,9 +144,9 @@ YÊU CẦU QUAN TRỌNG:
 """
         raw_script = ""
         try:
-            gemini = GeminiService()
-            raw_script = gemini.call_gemini(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
-        except GeminiQuotaExceededError as qe:
+            ai_manager = get_ai_manager()
+            raw_script = ai_manager.generate(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
+        except (AIQuotaExceededError, GeminiQuotaExceededError) as qe:
             logger.error(f"Gemini daily quota exceeded during script generation for {video_id}: {qe}")
             video.status = "GEMINI_QUOTA_EXCEEDED"
             video.notes = "Gemini daily quota has been reached. Try again after quota reset or use a project with sufficient quota."

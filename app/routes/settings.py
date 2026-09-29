@@ -276,9 +276,9 @@ def api_preview_voice(payload: PreviewVoicePayload):
 
 @router.post("/api/settings/test-gemini")
 def api_test_gemini():
-    from app.services.gemini_service import GeminiService
-    service = GeminiService()
-    return service.test_connection()
+    from app.services.ai import get_ai_manager
+    manager = get_ai_manager()
+    return manager.test_connection(provider_id="gemini")
 
 
 @router.post("/api/settings/test-voice")

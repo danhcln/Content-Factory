@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models import Video, Voice, Content, Publishing
+from app.services.ai import get_ai_manager, AIQuotaExceededError
 from app.services.gemini_service import (
     GeminiService,
     get_api_key,
@@ -180,10 +181,10 @@ CHỈ TRẢ VỀ DUY NHẤT MỘT ĐỐI TƯỢNG JSON HỢP LỆ THEO ĐÚNG C�
             parsed_data = None
             last_error = ""
 
-            gemini = GeminiService()
+            ai_manager = get_ai_manager()
             for attempt in range(max_retries + 1):
                 try:
-                    raw_text = gemini.call_gemini(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
+                    raw_text = ai_manager.generate(prompt, db=db, timeout=60.0, max_retries=max_retries, enable_fallback=True)
                     cleaned = clean_json_response(raw_text)
                     candidate = json.loads(cleaned)
                     val_res = validate_content_json(candidate)
@@ -193,7 +194,7 @@ CHỈ TRẢ VỀ DUY NHẤT MỘT ĐỐI TƯỢNG JSON HỢP LỆ THEO ĐÚNG C�
                     else:
                         last_error = val_res["error"]
                         logger.warning(f"Attempt {attempt + 1} validation failed: {last_error}")
-                except GeminiQuotaExceededError as qe:
+                except (AIQuotaExceededError, GeminiQuotaExceededError) as qe:
                     logger.error(f"Gemini daily quota exceeded during content generation for {video_id}: {qe}")
                     video.status = "GEMINI_QUOTA_EXCEEDED"
                     video.notes = "Gemini daily quota has been reached. Try again after quota reset or use a project with sufficient quota."

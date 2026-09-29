@@ -25,8 +25,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
-class GeminiAPIError(RuntimeError):
-    """Base exception for all Gemini API errors, maintaining full RuntimeError compatibility."""
+from app.services.ai.base import (
+    AIProviderError,
+    AIAuthenticationError,
+    AIPermissionError,
+    AIModelNotFoundError,
+    AIQuotaExceededError,
+    AIRateLimitError,
+    AIServiceUnavailableError,
+    AITimeoutError,
+    AINetworkError,
+)
+
+
+class GeminiAPIError(AIProviderError):
+    """Base exception for all Gemini API errors, maintaining full RuntimeError and AIProviderError compatibility."""
     def __init__(
         self,
         message: str,
@@ -34,18 +47,23 @@ class GeminiAPIError(RuntimeError):
         upstream_message: str = "",
         model_name: str = ""
     ):
-        super().__init__(message)
-        self.status_code = status_code
+        super().__init__(
+            message=message,
+            status_code=status_code,
+            provider="gemini",
+            model=model_name,
+            upstream_message=upstream_message
+        )
         self.upstream_message = upstream_message
         self.model_name = model_name
 
 
-class GeminiQuotaExceededError(GeminiAPIError):
+class GeminiQuotaExceededError(GeminiAPIError, AIQuotaExceededError):
     """Raised when Gemini returns daily quota exhaustion. Must NOT be retried."""
     pass
 
 
-class GeminiRateLimitError(GeminiAPIError):
+class GeminiRateLimitError(GeminiAPIError, AIRateLimitError):
     """Raised when Gemini returns temporary burst rate limit (per-minute)."""
     pass
 
@@ -55,17 +73,17 @@ class GeminiBadRequestError(GeminiAPIError):
     pass
 
 
-class GeminiAuthError(GeminiAPIError):
+class GeminiAuthError(GeminiAPIError, AIAuthenticationError):
     """HTTP 401 Unauthorized / Invalid API Key."""
     pass
 
 
-class GeminiPermissionError(GeminiAPIError):
+class GeminiPermissionError(GeminiAPIError, AIPermissionError):
     """HTTP 403 Forbidden / Permission Denied."""
     pass
 
 
-class GeminiModelNotFoundError(GeminiAPIError):
+class GeminiModelNotFoundError(GeminiAPIError, AIModelNotFoundError):
     """HTTP 404 Model Not Found."""
     pass
 
@@ -75,17 +93,17 @@ class GeminiInternalServerError(GeminiAPIError):
     pass
 
 
-class GeminiServiceUnavailableError(GeminiAPIError):
+class GeminiServiceUnavailableError(GeminiAPIError, AIServiceUnavailableError):
     """HTTP 503 / 500+ Temporary Google Service Unavailable / High Demand."""
     pass
 
 
-class GeminiTimeoutError(GeminiAPIError):
+class GeminiTimeoutError(GeminiAPIError, AITimeoutError):
     """Request timeout."""
     pass
 
 
-class GeminiNetworkError(GeminiAPIError):
+class GeminiNetworkError(GeminiAPIError, AINetworkError):
     """Network connection failure."""
     pass
 

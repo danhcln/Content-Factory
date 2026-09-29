@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Product
+from app.services.ai import get_ai_manager, AIQuotaExceededError
 from app.services.gemini_service import (
     GeminiService,
     get_next_product_id,
@@ -96,10 +97,10 @@ def run_research(
                 status_code=303
             )
 
-    # 2. Invoke GeminiService with strict Low-Consumption Mode (exactly ONE LLM attempt)
-    gemini = GeminiService()
+    # 2. Invoke AI Provider Manager with strict Low-Consumption Mode (exactly ONE LLM attempt)
+    ai_manager = get_ai_manager()
     try:
-        products_data = gemini.generate_products(niche=niche_clean, count=product_count, db=db)
+        products_data = ai_manager.generate_products(niche=niche_clean, count=product_count, db=db)
         if not products_data:
             raise ValueError("Không có sản phẩm nào được tạo ra.")
 
@@ -140,7 +141,7 @@ def run_research(
             status_code=303
         )
 
-    except GeminiQuotaExceededError as qe:
+    except (AIQuotaExceededError, GeminiQuotaExceededError) as qe:
         db.rollback()
         clean_qe = sanitize_error_message(str(qe))
         return templates.TemplateResponse(
