@@ -138,6 +138,7 @@ class TestMultiAIPhase2Architecture(unittest.TestCase):
         self.assertFalse(openai.supports_model("claude-3-5-sonnet"))
 
         self.assertTrue(anthropic.supports_model("claude-3-5-sonnet-20241022"))
+        self.assertTrue(anthropic.supports_model("claude-sonnet-4-6"))
         self.assertFalse(anthropic.supports_model("gpt-4o"))
 
         self.assertTrue(groq.supports_model("llama-3.3-70b-versatile"))
@@ -310,13 +311,13 @@ class TestAnthropicProviderMatrix(unittest.TestCase):
         self.provider = AnthropicProvider()
 
     @patch("app.services.ai.providers.anthropic.get_anthropic_api_key", return_value="sk-ant-TEST_KEY")
-    @patch("app.services.ai.providers.anthropic.get_anthropic_model", return_value="claude-3-5-sonnet-20241022")
+    @patch("app.services.ai.providers.anthropic.get_anthropic_model", return_value="claude-sonnet-4-6")
     @patch("httpx.Client.post")
     def test_anthropic_successful_generation(self, mock_post, mock_m, mock_k):
         """Anthropic native Messages API call extracts content and usage."""
         mock_post.return_value = _mock_resp(200, {
             "id": "msg_123",
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-sonnet-4-6",
             "content": [{"type": "text", "text": "Hello from Claude"}],
             "usage": {"input_tokens": 15, "output_tokens": 8}
         })

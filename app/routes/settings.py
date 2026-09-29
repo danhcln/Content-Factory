@@ -13,7 +13,7 @@ from app.database import get_db, BASE_DIR, TEMP_DIR
 from app.config import (
     DEFAULT_GEMINI_MODEL, get_gemini_model, get_gemini_api_key,
     DEFAULT_OPENAI_MODEL, get_openai_model, get_openai_api_key,
-    DEFAULT_ANTHROPIC_MODEL, get_anthropic_model, get_anthropic_api_key,
+    DEFAULT_ANTHROPIC_MODEL, LEGACY_ANTHROPIC_DEFAULT_MODEL, get_anthropic_model, get_anthropic_api_key,
     DEFAULT_GROQ_MODEL, get_groq_model, get_groq_api_key,
     DEFAULT_OPENROUTER_MODEL, get_openrouter_model, get_openrouter_api_key,
     DEFAULT_ACTIVE_AI_PROVIDER, get_active_ai_provider,
@@ -73,6 +73,8 @@ def save_provider_settings(db: Session, provider_id: str, submitted_key: str, su
             set_key(str(ENV_FILE), "GEMINI_API_KEY", key_clean)
 
     model_clean = submitted_model.strip() if submitted_model else ""
+    if pid == "anthropic" and model_clean == LEGACY_ANTHROPIC_DEFAULT_MODEL:
+        model_clean = DEFAULT_ANTHROPIC_MODEL
     if model_clean:
         db_model = db.query(Setting).filter(Setting.key.in_([f"{pid}_model", f"{pid.upper()}_MODEL"])).first()
         if not db_model:

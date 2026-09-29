@@ -30,7 +30,7 @@ from app.services.ai.providers.common import (
     global_model_cache,
     classify_http_error,
 )
-from app.config import get_anthropic_api_key, get_anthropic_model
+from app.config import get_anthropic_api_key, get_anthropic_model, normalize_model_name
 
 logger = logging.getLogger("app.services.ai.providers.anthropic")
 
@@ -71,7 +71,7 @@ class AnthropicProvider(AIProvider):
         Strictly obeys max_retries (max_retries=0 for Research => exactly 1 HTTP call).
         """
         api_key = get_anthropic_api_key(db)
-        model_name = kwargs.get("model") or get_anthropic_model(db)
+        model_name = normalize_model_name(self.provider_id, kwargs.get("model") or get_anthropic_model(db))
 
         max_output_tokens = kwargs.get("max_output_tokens")
         temperature = kwargs.get("temperature")

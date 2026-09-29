@@ -27,7 +27,8 @@ DEFAULT_ACTIVE_AI_PROVIDER = "gemini"
 # Production default model: gemini-3.8-flash
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+LEGACY_ANTHROPIC_DEFAULT_MODEL = "claude-3-5-sonnet-20241022"
 DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
 DEFAULT_OPENROUTER_MODEL = "anthropic/claude-3.5-sonnet"
 
@@ -175,12 +176,17 @@ def get_anthropic_model(db=None) -> str:
             from app.models import Setting
             rec = db.query(Setting).filter(Setting.key.in_(["anthropic_model", "ANTHROPIC_MODEL"])).first()
             if rec and rec.value and rec.value.strip():
-                return rec.value.strip()
+                val = rec.value.strip()
+                if val == LEGACY_ANTHROPIC_DEFAULT_MODEL:
+                    return DEFAULT_ANTHROPIC_MODEL
+                return val
         except Exception as e:
             logger.debug(f"Could not read anthropic model from db: {e}")
 
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     env_model = os.getenv("ANTHROPIC_MODEL", "").strip()
+    if env_model == LEGACY_ANTHROPIC_DEFAULT_MODEL:
+        return DEFAULT_ANTHROPIC_MODEL
     return env_model or DEFAULT_ANTHROPIC_MODEL
 
 
@@ -387,12 +393,16 @@ def normalize_model_name(provider_id: str, model_name: Optional[str]) -> str:
     Locally normalize model setting for a provider.
     - If model_name is empty or whitespace, returns the provider's known default model.
     - If model_name is non-empty, preserves customer's selection without network verification.
+    - If provider is anthropic and model_name is the legacy default, transitions to claude-sonnet-4-6.
     """
     cleaned = (model_name or "").strip()
+    pid = (provider_id or "gemini").strip().lower()
+
     if cleaned:
+        if pid == "anthropic" and cleaned == LEGACY_ANTHROPIC_DEFAULT_MODEL:
+            return DEFAULT_ANTHROPIC_MODEL
         return cleaned
 
-    pid = (provider_id or "gemini").strip().lower()
     if pid == "gemini":
         return DEFAULT_GEMINI_MODEL
     elif pid == "openai":
