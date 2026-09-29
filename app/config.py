@@ -270,12 +270,15 @@ def get_openrouter_api_key(db=None) -> str:
 
 
 # ==============================================================================
-# MULTI-AI ROUTING & FALLBACK CONFIGURATION (Phase 4)
+# MULTI-AI ROUTING & FALLBACK CONFIGURATION (Phase 4 & 5 Hardening)
 # ==============================================================================
 
 DEFAULT_AI_FALLBACK_ENABLED = False
 DEFAULT_AI_FALLBACK_PROVIDERS = ""
 DEFAULT_AI_FALLBACK_ON_QUOTA = False
+DEFAULT_AI_FALLBACK_BUDGET_SECONDS = 45.0
+MIN_CANDIDATE_TIMEOUT_SECONDS = 3.0
+MAX_CANDIDATE_TIMEOUT_SECONDS = 20.0
 
 
 def get_ai_fallback_enabled(db=None) -> bool:
@@ -344,5 +347,63 @@ def get_ai_fallback_on_quota(db=None) -> bool:
     load_dotenv(dotenv_path=ENV_FILE, override=True)
     env_val = os.getenv("AI_FALLBACK_ON_QUOTA", "").strip().lower()
     return env_val in ("true", "1", "yes", "on")
+
+
+def get_ai_fallback_budget_seconds(db=None) -> float:
+    """
+    Retrieve total wall-clock budget in seconds for an end-to-end routed generation workflow.
+    Defaults to 45.0 seconds. Safely normalizes invalid, non-numeric, zero, negative,
+    or unreasonably small (< MIN_CANDIDATE_TIMEOUT_SECONDS) values to DEFAULT_AI_FALLBACK_BUDGET_SECONDS.
+    """
+    if db is not None:
+        try:
+            from app.models import Setting
+            rec = db.query(Setting).filter(Setting.key.in_(["ai_fallback_budget_seconds", "AI_FALLBACK_BUDGET_SECONDS"])).first()
+            if rec and rec.value is not None:
+                try:
+                    val = float(str(rec.value).strip())
+                    if val >= MIN_CANDIDATE_TIMEOUT_SECONDS:
+                        return val
+                except (ValueError, TypeError):
+                    pass
+        except Exception as e:
+            logger.debug(f"Could not read ai_fallback_budget_seconds from db: {e}")
+
+    load_dotenv(dotenv_path=ENV_FILE, override=True)
+    env_val = os.getenv("AI_FALLBACK_BUDGET_SECONDS", "").strip()
+    if env_val:
+        try:
+            val = float(env_val)
+            if val >= MIN_CANDIDATE_TIMEOUT_SECONDS:
+                return val
+        except (ValueError, TypeError):
+            pass
+
+    return DEFAULT_AI_FALLBACK_BUDGET_SECONDS
+
+
+def normalize_model_name(provider_id: str, model_name: Optional[str]) -> str:
+    """
+    Locally normalize model setting for a provider.
+    - If model_name is empty or whitespace, returns the provider's known default model.
+    - If model_name is non-empty, preserves customer's selection without network verification.
+    """
+    cleaned = (model_name or "").strip()
+    if cleaned:
+        return cleaned
+
+    pid = (provider_id or "gemini").strip().lower()
+    if pid == "gemini":
+        return DEFAULT_GEMINI_MODEL
+    elif pid == "openai":
+        return DEFAULT_OPENAI_MODEL
+    elif pid == "anthropic":
+        return DEFAULT_ANTHROPIC_MODEL
+    elif pid == "groq":
+        return DEFAULT_GROQ_MODEL
+    elif pid == "openrouter":
+        return DEFAULT_OPENROUTER_MODEL
+    return cleaned or "default"
+
 
 

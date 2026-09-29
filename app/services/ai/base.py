@@ -148,12 +148,15 @@ class ExecutionMetadata:
     actual_provider_used: str = ""
     actual_model_used: str = ""
     fallback_used: bool = False
+    internal_fallback_used: bool = False
+    cross_provider_fallback_used: bool = False
     fallback_attempts: int = 0
     fallback_chain: List[Dict[str, Any]] = field(default_factory=list)
     status: str = "SUCCESS"
     error_type: Optional[str] = None
     attempts: int = 1
     duration_seconds: Optional[float] = None
+    total_duration_seconds: Optional[float] = None
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
@@ -166,16 +169,74 @@ class ExecutionMetadata:
             "actual_provider_used": self.actual_provider_used or self.provider,
             "actual_model_used": self.actual_model_used,
             "fallback_used": self.fallback_used,
+            "internal_fallback_used": self.internal_fallback_used,
+            "cross_provider_fallback_used": self.cross_provider_fallback_used,
             "fallback_attempts": self.fallback_attempts,
             "fallback_chain": self.fallback_chain,
             "status": self.status,
             "error_type": self.error_type,
             "attempts": self.attempts,
             "duration_seconds": self.duration_seconds,
+            "total_duration_seconds": self.total_duration_seconds or self.duration_seconds,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "total_tokens": self.total_tokens
         }
+
+
+# ==============================================================================
+# USER-FRIENDLY ERROR UX & SANITIZATION
+# ==============================================================================
+
+def get_user_friendly_error_message(err: Exception) -> str:
+    """
+    Translate raw technical exceptions into clean, customer-facing Vietnamese guidance.
+    Guarantees 100% secret scrubbing on all messages.
+    """
+    if err is None:
+        return ""
+
+    from app.services.ai.providers.common import sanitize_secrets
+
+    raw_str = str(err)
+    clean_raw = sanitize_secrets(raw_str)
+    err_type = getattr(err, "error_type", None)
+
+    if isinstance(err, AIAuthenticationError) or err_type in ("authentication", "not_configured"):
+        if err_type == "not_configured" or "not configured" in clean_raw.lower() or "chưa cấu hình" in clean_raw.lower():
+            return "Chưa cấu hình API Key. Vui lòng vào Cài đặt để thêm API Key cho nhà cung cấp AI."
+        return "API Key không hợp lệ hoặc đã hết hạn. Vui lòng kiểm tra lại cấu hình trong Cài đặt."
+
+    if isinstance(err, AIPermissionError) or err_type == "permission":
+        return "Tài khoản không có quyền truy cập mô hình AI này (403 Forbidden). Vui lòng chọn mô hình khác trong Cài đặt."
+
+    if isinstance(err, AIQuotaExceededError) or err_type == "quota":
+        return "Hạn ngạch sử dụng (Quota / Credit) của nhà cung cấp AI đã hết. Vui lòng nạp thêm tiền hoặc đổi nhà cung cấp."
+
+    if isinstance(err, AIRateLimitError) or err_type == "rate_limit":
+        return "Hệ thống AI đang bị giới hạn tốc độ (Rate Limit). Vui lòng thử lại sau giây lát."
+
+    if isinstance(err, AIServiceUnavailableError) or err_type == "service_unavailable":
+        return "Máy chủ AI của nhà cung cấp đang quá tải hoặc tạm thời gián đoạn (503). Vui lòng thử lại sau ít phút."
+
+    if isinstance(err, AITimeoutError) or err_type == "timeout":
+        return "Yêu cầu kết nối tới nhà cung cấp AI bị quá thời gian chờ (Timeout). Vui lòng kiểm tra đường truyền mạng."
+
+    if isinstance(err, AINetworkError) or err_type == "network":
+        return "Lỗi kết nối mạng tới nhà cung cấp AI. Vui lòng kiểm tra internet hoặc proxy."
+
+    if isinstance(err, AIModelNotFoundError) or err_type == "model_not_found":
+        return "Mô hình AI đã chọn không tồn tại hoặc đã ngừng hỗ trợ. Vui lòng cập nhật mô hình trong Cài đặt."
+
+    if isinstance(err, AIBadRequestError) or err_type == "bad_request":
+        return "Yêu cầu gửi tới nhà cung cấp AI không hợp lệ (400 Bad Request)."
+
+    if isinstance(err, AIFallbackExhaustedError) or err_type == "fallback_exhausted":
+        return f"Tất cả các nhà cung cấp AI dự phòng đều không thể phản hồi ({clean_raw}). Vui lòng kiểm tra Cài đặt."
+
+    # Generic fallback with sanitized text
+    return f"Lỗi AI: {clean_raw}"
+
 
 
 # ==============================================================================

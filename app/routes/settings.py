@@ -18,7 +18,8 @@ from app.config import (
     DEFAULT_OPENROUTER_MODEL, get_openrouter_model, get_openrouter_api_key,
     DEFAULT_ACTIVE_AI_PROVIDER, get_active_ai_provider,
     mask_api_key, get_key_hint, SUPPORTED_AI_PROVIDERS,
-    get_ai_fallback_enabled, get_ai_fallback_providers, get_ai_fallback_on_quota
+    get_ai_fallback_enabled, get_ai_fallback_providers, get_ai_fallback_on_quota,
+    get_ai_fallback_budget_seconds, normalize_model_name
 )
 from app.models import Setting
 from app.services.usage_tracker import GeminiUsageTracker
@@ -155,6 +156,61 @@ def get_provider_models_logic(provider_id: str, db: Optional[Session] = None) ->
             "models": [],
             "error": sanitize_secrets(str(e))
         }
+
+
+def get_ai_system_diagnostics(db: Optional[Session] = None) -> Dict[str, Any]:
+    """
+    Local-only diagnostics for Multi-AI system.
+    Strictly performs ZERO network/API calls:
+    - Inspects configured status of each provider.
+    - Reports active provider, model selections, fallback order and quota policy.
+    - Inspects local in-memory catalog cache count if already populated, without fetching.
+    """
+    from app.services.ai.providers.common import global_model_cache
+    active_prov = get_active_ai_provider(db)
+    fallback_enabled = get_ai_fallback_enabled(db)
+    fallback_providers = get_ai_fallback_providers(db)
+    fallback_on_quota = get_ai_fallback_on_quota(db)
+    fallback_budget = get_ai_fallback_budget_seconds(db)
+
+    provider_configs = [
+        ("gemini", "Google Gemini", "direct", False, get_gemini_api_key, get_gemini_model),
+        ("openai", "OpenAI", "direct", False, get_openai_api_key, get_openai_model),
+        ("anthropic", "Anthropic", "direct", False, get_anthropic_api_key, get_anthropic_model),
+        ("groq", "Groq", "direct", False, get_groq_api_key, get_groq_model),
+        ("openrouter", "OpenRouter", "gateway", True, get_openrouter_api_key, get_openrouter_model),
+    ]
+
+    providers_status = {}
+    for pid, name, ptype, is_gtw, key_fn, model_fn in provider_configs:
+        raw_key = key_fn(db) if key_fn else ""
+        is_cfg = bool(raw_key and raw_key.strip())
+        cfg_model = normalize_model_name(pid, model_fn(db) if model_fn else "")
+        hint = get_key_hint(raw_key) if is_cfg else None
+
+        cached_models = global_model_cache.get(pid, raw_key) if is_cfg else None
+        cached_count = len(cached_models) if cached_models else 0
+
+        providers_status[pid] = {
+            "name": name,
+            "provider_type": ptype,
+            "is_gateway": is_gtw,
+            "configured": is_cfg,
+            "key_hint": hint,
+            "configured_model": cfg_model,
+            "cached_models_count": cached_count,
+            "is_active": (pid == active_prov),
+            "in_fallback_chain": (pid in fallback_providers)
+        }
+
+    return {
+        "active_provider": active_prov,
+        "fallback_enabled": fallback_enabled,
+        "fallback_providers": fallback_providers,
+        "fallback_on_quota": fallback_on_quota,
+        "fallback_budget_seconds": fallback_budget,
+        "providers": providers_status
+    }
 
 
 def get_current_settings(db: Session = None):
@@ -574,3 +630,13 @@ def api_get_ai_status(db: Session = Depends(get_db)):
         "active_provider": active_prov,
         "providers": providers_status
     })
+
+
+@router.get("/api/settings/ai/diagnostics")
+def api_get_ai_diagnostics(db: Session = Depends(get_db)):
+    """
+    Return local-only system diagnostics for the Multi-AI routing system.
+    Guarantees ZERO network calls and ZERO token consumption.
+    """
+    return JSONResponse(content=get_ai_system_diagnostics(db=db))
+

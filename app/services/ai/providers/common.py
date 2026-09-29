@@ -36,8 +36,11 @@ _SECRET_PATTERNS = [
     re.compile(r"sk-[a-zA-Z0-9_\-]{8,}", re.IGNORECASE),
     re.compile(r"gsk_[a-zA-Z0-9_\-]{8,}", re.IGNORECASE),
     re.compile(r"AIzaSy[a-zA-Z0-9_\-]{8,}", re.IGNORECASE),
+    re.compile(r"AIza[0-9A-Za-z_-]{20,}", re.IGNORECASE),
     re.compile(r"Bearer\s+[a-zA-Z0-9_\-\.]{8,}", re.IGNORECASE),
     re.compile(r"x-api-key:\s*[^\s,;]+", re.IGNORECASE),
+    re.compile(r"(?:api_?key|key|token)=([a-zA-Z0-9_\-\.]{8,})", re.IGNORECASE),
+    re.compile(r"eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{10,}", re.IGNORECASE),
 ]
 
 
@@ -62,10 +65,13 @@ def sanitize_secrets(text: str, *secrets: Optional[str]) -> str:
             sanitized = pat.sub("Bearer [REDACTED]", sanitized)
         elif "x-api-key" in pat.pattern:
             sanitized = pat.sub("x-api-key: [REDACTED]", sanitized)
+        elif "(?:api_?key" in pat.pattern:
+            sanitized = pat.sub("key=[REDACTED]", sanitized)
         else:
             sanitized = pat.sub("[REDACTED]", sanitized)
 
     return sanitized
+
 
 
 # ==============================================================================

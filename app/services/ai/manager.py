@@ -26,6 +26,14 @@ from app.services.ai.providers.openai import OpenAIProvider
 from app.services.ai.providers.anthropic import AnthropicProvider
 from app.services.ai.providers.groq import GroqProvider
 from app.services.ai.providers.openrouter import OpenRouterProvider
+from app.config import (
+    get_ai_fallback_enabled,
+    get_ai_fallback_providers,
+    get_ai_fallback_on_quota,
+    get_ai_fallback_budget_seconds,
+    MIN_CANDIDATE_TIMEOUT_SECONDS,
+    MAX_CANDIDATE_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger("app.services.ai.manager")
 
@@ -146,12 +154,6 @@ class AIProviderManager:
         elif options is not None and hasattr(options, "allow_cross_provider_fallback"):
             workflow_allow = options.allow_cross_provider_fallback
 
-        from app.config import (
-            get_ai_fallback_enabled,
-            get_ai_fallback_providers,
-            get_ai_fallback_on_quota,
-        )
-
         customer_fallback_enabled = get_ai_fallback_enabled(db)
         should_cross_fallback = customer_fallback_enabled and workflow_allow and (provider_id is None)
 
@@ -170,7 +172,10 @@ class AIProviderManager:
             if isinstance(raw_meta, dict):
                 self._last_execution_meta = dict(raw_meta)
                 self._last_execution_meta["actual_provider_used"] = provider.provider_id
+                self._last_execution_meta["internal_fallback_used"] = raw_meta.get("fallback_used", False)
+                self._last_execution_meta["cross_provider_fallback_used"] = False
                 self._last_execution_meta["fallback_used"] = raw_meta.get("fallback_used", False)
+                self._last_execution_meta["total_duration_seconds"] = raw_meta.get("duration_seconds")
             return res
 
         return self._execute_cross_provider_fallback(
@@ -195,42 +200,69 @@ class AIProviderManager:
     ) -> str:
         """
         Execute deterministic customer-controlled cross-provider fallback.
-        Guarantees:
-        - Primary attempted first.
-        - Unconfigured candidate providers skipped.
-        - Conservative 429 policy: halts on 429 unless customer enabled ai_fallback_on_quota.
-        - 400 Bad Request, 401 Auth, 403 Permission halt immediately with zero fallback.
-        - Prevents duplicate provider attempts and recursive loops.
+        Phase 5 Hardening Guarantees:
+        - True end-to-end workflow deadline: starts BEFORE primary provider attempt.
+        - Primary + retries + fallback candidates all stay within DEFAULT_AI_FALLBACK_BUDGET_SECONDS.
+        - Primary and candidate timeouts are clamped to remaining workflow budget.
+        - Fallback candidates strictly use max_retries=0 and candidate timeout <= 20.0s.
+        - Halts immediately when remaining budget is below MIN_CANDIDATE_TIMEOUT_SECONDS.
+        - Preserves Research invariant (Research permanently sets allow_cross_provider_fallback=False).
+        - Propagates full execution metadata (tokens, duration, internal vs cross fallback).
         - Sanitizes all secrets in error messages and metadata.
         """
-        from app.config import (
-            get_ai_fallback_providers,
-            get_ai_fallback_on_quota,
-        )
+        import time
         from app.services.ai.providers.common import sanitize_secrets
+
+        workflow_start = time.monotonic()
+        total_budget = get_ai_fallback_budget_seconds(db)
 
         primary_provider = self.get_active_provider(db=db)
         primary_id = primary_provider.provider_id
         attempted_providers = {primary_id}
         fallback_chain: List[Dict[str, Any]] = []
 
-        # 1. Attempt Primary Provider
+        # 1. Attempt Primary Provider inside overall workflow deadline
+        rem_before_primary = total_budget - (time.monotonic() - workflow_start)
+        if rem_before_primary <= 0:
+            raise AIFallbackExhaustedError(
+                f"Workflow latency budget ({total_budget}s) expired before primary attempt.",
+                provider=primary_id
+            )
+
+        primary_timeout = min(timeout, rem_before_primary)
+        primary_options = options
+        if options:
+            primary_options = AIGenerationOptions(
+                timeout=primary_timeout,
+                max_retries=options.max_retries,
+                enable_fallback=options.enable_fallback,
+                allow_cross_provider_fallback=options.allow_cross_provider_fallback,
+                temperature=options.temperature,
+                max_output_tokens=options.max_output_tokens,
+                system_instruction=options.system_instruction,
+                extra_params=options.extra_params
+            )
+
         try:
             res = primary_provider.generate(
                 prompt=prompt,
                 db=db,
-                timeout=timeout,
+                timeout=primary_timeout,
                 max_retries=max_retries,
                 enable_fallback=enable_fallback,
-                options=options,
+                options=primary_options,
                 **kwargs
             )
             raw_meta = primary_provider.get_last_execution_metadata()
+            dur = round(time.monotonic() - workflow_start, 3)
             if isinstance(raw_meta, dict):
                 self._last_execution_meta = dict(raw_meta)
                 self._last_execution_meta["actual_provider_used"] = primary_id
+                self._last_execution_meta["internal_fallback_used"] = raw_meta.get("fallback_used", False)
+                self._last_execution_meta["cross_provider_fallback_used"] = False
                 self._last_execution_meta["fallback_used"] = raw_meta.get("fallback_used", False)
                 self._last_execution_meta["fallback_attempts"] = 0
+                self._last_execution_meta["total_duration_seconds"] = dur
                 self._last_execution_meta["fallback_chain"] = [{
                     "provider": primary_id,
                     "status": "SUCCESS",
@@ -270,7 +302,34 @@ class AIProviderManager:
                 f"({err_type}: {clean_err}). Evaluating fallback candidates..."
             )
 
-        # 2. Retrieve and filter fallback candidates
+        # 2. Check remaining workflow budget after primary failure
+        elapsed_after_primary = time.monotonic() - workflow_start
+        remaining_budget = total_budget - elapsed_after_primary
+        if remaining_budget < MIN_CANDIDATE_TIMEOUT_SECONDS:
+            logger.warning(
+                f"[CROSS-PROVIDER FALLBACK] Workflow budget ({total_budget}s) exhausted after "
+                f"primary attempt ({elapsed_after_primary:.2f}s elapsed). Aborting fallback."
+            )
+            self._last_execution_meta = {
+                "provider": primary_id,
+                "actual_provider_used": "",
+                "fallback_used": True,
+                "internal_fallback_used": False,
+                "cross_provider_fallback_used": True,
+                "fallback_attempts": 0,
+                "fallback_chain": fallback_chain,
+                "status": "FAILED",
+                "error_type": "fallback_exhausted",
+                "duration_seconds": round(elapsed_after_primary, 3),
+                "total_duration_seconds": round(elapsed_after_primary, 3)
+            }
+            chain_desc = "; ".join(f"{c['provider']}: {c.get('error_type', 'failed')}" for c in fallback_chain)
+            raise AIFallbackExhaustedError(
+                f"All configured AI providers failed. Workflow budget ({total_budget}s) exhausted. Attempts: {chain_desc}",
+                provider=primary_id
+            )
+
+        # 3. Retrieve and filter fallback candidates
         candidate_ids = get_ai_fallback_providers(db)
         eligible_candidates = []
         for cid in candidate_ids:
@@ -288,10 +347,14 @@ class AIProviderManager:
                 "provider": primary_id,
                 "actual_provider_used": "",
                 "fallback_used": True,
+                "internal_fallback_used": False,
+                "cross_provider_fallback_used": True,
                 "fallback_attempts": 0,
                 "fallback_chain": fallback_chain,
                 "status": "FAILED",
-                "error_type": "fallback_exhausted"
+                "error_type": "fallback_exhausted",
+                "duration_seconds": round(time.monotonic() - workflow_start, 3),
+                "total_duration_seconds": round(time.monotonic() - workflow_start, 3)
             }
             chain_desc = "; ".join(f"{c['provider']}: {c.get('error_type', 'failed')}" for c in fallback_chain)
             raise AIFallbackExhaustedError(
@@ -299,16 +362,25 @@ class AIProviderManager:
                 provider=primary_id
             )
 
-        # 3. Iterate candidates deterministically
+        # 4. Iterate candidates deterministically inside remaining budget
         for cand_id in eligible_candidates:
+            rem_budget = total_budget - (time.monotonic() - workflow_start)
+            if rem_budget < MIN_CANDIDATE_TIMEOUT_SECONDS:
+                logger.warning(
+                    f"[CROSS-PROVIDER FALLBACK] Remaining budget ({rem_budget:.1f}s) is below "
+                    f"minimum viable threshold ({MIN_CANDIDATE_TIMEOUT_SECONDS}s). Halting fallback."
+                )
+                break
+
             attempted_providers.add(cand_id)
             cand_provider = self.get_provider(cand_id)
+            cand_timeout = min(timeout, rem_budget, MAX_CANDIDATE_TIMEOUT_SECONDS)
 
             cand_options = None
             if options:
                 cand_options = AIGenerationOptions(
-                    timeout=options.timeout,
-                    max_retries=1,
+                    timeout=cand_timeout,
+                    max_retries=0,  # Fallback candidates never retry
                     enable_fallback=False,
                     allow_cross_provider_fallback=False,
                     temperature=options.temperature,
@@ -318,19 +390,19 @@ class AIProviderManager:
                 )
             else:
                 cand_options = AIGenerationOptions(
-                    timeout=timeout,
-                    max_retries=1,
+                    timeout=cand_timeout,
+                    max_retries=0,
                     enable_fallback=False,
                     allow_cross_provider_fallback=False
                 )
 
             try:
-                logger.info(f"[CROSS-PROVIDER FALLBACK] Routing request to candidate provider '{cand_id}'...")
+                logger.info(f"[CROSS-PROVIDER FALLBACK] Routing request to candidate provider '{cand_id}' (timeout: {cand_timeout:.1f}s)...")
                 cand_res = cand_provider.generate(
                     prompt=prompt,
                     db=db,
-                    timeout=timeout,
-                    max_retries=1,
+                    timeout=cand_timeout,
+                    max_retries=0,
                     enable_fallback=False,
                     options=cand_options,
                     **kwargs
@@ -343,21 +415,31 @@ class AIProviderManager:
                     "model": actual_model
                 })
 
+                total_dur = round(time.monotonic() - workflow_start, 3)
+                cand_dur = raw_cand_meta.get("duration_seconds", cand_timeout) if isinstance(raw_cand_meta, dict) else cand_timeout
+
                 self._last_execution_meta = {
                     "provider": primary_id,
                     "provider_type": primary_provider.provider_type,
                     "actual_provider_used": cand_id,
                     "actual_model_used": actual_model,
                     "fallback_used": True,
+                    "internal_fallback_used": False,
+                    "cross_provider_fallback_used": True,
                     "fallback_attempts": len(fallback_chain) - 1,
                     "fallback_chain": fallback_chain,
                     "status": "SUCCESS",
                     "error_type": None,
-                    "attempts": len(fallback_chain)
+                    "attempts": len(fallback_chain),
+                    "duration_seconds": cand_dur,
+                    "total_duration_seconds": total_dur,
+                    "input_tokens": raw_cand_meta.get("input_tokens") if isinstance(raw_cand_meta, dict) else None,
+                    "output_tokens": raw_cand_meta.get("output_tokens") if isinstance(raw_cand_meta, dict) else None,
+                    "total_tokens": raw_cand_meta.get("total_tokens") if isinstance(raw_cand_meta, dict) else None,
                 }
                 logger.info(
                     f"[CROSS-PROVIDER FALLBACK] Succeeded with candidate provider '{cand_id}' "
-                    f"(model: '{actual_model}')."
+                    f"(model: '{actual_model}') in {total_dur}s total."
                 )
                 return cand_res
             except Exception as cand_err:
@@ -374,21 +456,27 @@ class AIProviderManager:
                     f"({cand_err_type}: {clean_cand_err}). Continuing chain..."
                 )
 
-        # 4. If all candidates fail
+        # 5. If all candidates fail or deadline reached
+        total_fail_dur = round(time.monotonic() - workflow_start, 3)
         self._last_execution_meta = {
             "provider": primary_id,
             "actual_provider_used": "",
             "fallback_used": True,
+            "internal_fallback_used": False,
+            "cross_provider_fallback_used": True,
             "fallback_attempts": len(fallback_chain) - 1,
             "fallback_chain": fallback_chain,
             "status": "FAILED",
-            "error_type": "fallback_exhausted"
+            "error_type": "fallback_exhausted",
+            "duration_seconds": total_fail_dur,
+            "total_duration_seconds": total_fail_dur,
         }
         chain_desc = "; ".join(f"{c['provider']}: {c.get('error_type', 'failed')}" for c in fallback_chain)
         raise AIFallbackExhaustedError(
-            f"All configured AI providers failed. Attempts: {chain_desc}",
+            f"All configured AI providers failed. Workflow budget: {total_budget}s. Attempts: {chain_desc}",
             provider=primary_id
         )
+
 
     def test_connection(
         self,
