@@ -8,25 +8,36 @@
     <div class="col-lg-6">
         <div class="card mb-4">
             <div class="card-header">
-                <i class="bi bi-magic me-2 text-primary"></i>Tạo Danh Sách Sản Phẩm Tiềm Năng (Gemini AI)
+                <i class="bi bi-magic me-2 text-primary"></i>Tạo Danh Sách Sản Phẩm Tiềm Năng ({{ provider_info.provider_name if provider_info else 'AI Provider' }})
             </div>
             <div class="card-body">
-                <!-- Gemini Status Box -->
-                <div id="geminiStatusBox" class="gemini-status-box mb-3">
-                    <div class="gemini-status-header">
-                        <i class="bi bi-stars me-1 text-primary"></i>
-                        <span class="gemini-status-model">{{ gemini_status.model if gemini_status else 'gemini-3.8-flash' }}</span>
+                <!-- Research Provider Status Box -->
+                <div id="researchProviderStatusBox" class="gemini-status-box mb-3">
+                    <div class="d-flex align-items-center justify-content-between mb-1">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-cpu me-2 text-primary"></i>
+                            <span class="fw-bold text-white" id="researchProviderName">{{ provider_info.provider_name if provider_info else 'AI Provider' }}</span>
+                        </div>
+                        <span class="badge bg-secondary gemini-status-model" id="researchModelBadge">{{ provider_info.model if provider_info else 'N/A' }}</span>
                     </div>
                     <div class="d-flex align-items-center gap-2 mt-1">
                         <span class="gemini-status-dot" id="researchStatusDot">●</span>
                         <span class="gemini-status-msg fw-semibold" id="researchStatusMsg">
-                            {{ gemini_status.message if gemini_status else 'Chưa kiểm tra Gemini' }}
+                            {{ provider_info.status_msg if provider_info else 'Chưa kiểm tra trạng thái' }}
                         </span>
                     </div>
                     <div class="gemini-status-hint text-secondary small mt-1" id="researchStatusHint">
-                        {{ gemini_status.hint if gemini_status else '' }}
+                        {{ provider_info.status_hint if provider_info else '' }}
                     </div>
                 </div>
+
+                {% if provider_info and provider_info.provider_id != 'gemini' and gemini_status %}
+                <div class="p-2 mb-3 rounded bg-dark border border-secondary-subtle small text-secondary">
+                    <span class="text-muted"><i class="bi bi-info-circle me-1"></i>Chẩn đoán Gemini riêng:</span>
+                    <span class="text-light fw-semibold">{{ gemini_status.status }}</span> &mdash;
+                    <span>{{ gemini_status.message }}</span>
+                </div>
+                {% endif %}
 
                 {% if error %}
                 <div class="alert alert-dismissible fade show mb-3
@@ -44,18 +55,27 @@
                             {% else %}bi-exclamation-triangle-fill text-danger{% endif %} mt-1 flex-shrink-0"></i>
                         <div>
                             <div class="fw-semibold">
-                                {% if error_type == 'QUOTA_EXCEEDED' %}Đã hết hạn mức Gemini hôm nay
-                                {% elif error_type == 'BUSY' %}Gemini đang quá tải
-                                {% elif error_type == 'RATE_LIMITED' %}Gemini đang bị giới hạn tạm thời
-                                {% elif error_type == 'AUTH_ERROR' %}Lỗi xác thực Gemini
-                                {% elif error_type == 'NETWORK_ERROR' %}Không kết nối được Gemini
-                                {% else %}Lỗi Gemini{% endif %}
+                                {% if error_title %}
+                                    {{ error_title }}
+                                {% elif error_type == 'QUOTA_EXCEEDED' %}
+                                    {{ provider_info.provider_name if provider_info else 'AI' }} đã hết hạn mức API / quota
+                                {% elif error_type == 'BUSY' %}
+                                    {{ provider_info.provider_name if provider_info else 'AI' }} đang quá tải
+                                {% elif error_type == 'RATE_LIMITED' %}
+                                    {{ provider_info.provider_name if provider_info else 'AI' }} đang bị giới hạn tạm thời
+                                {% elif error_type == 'AUTH_ERROR' %}
+                                    Lỗi xác thực {{ provider_info.provider_name if provider_info else 'AI' }}
+                                {% elif error_type == 'NETWORK_ERROR' %}
+                                    Không kết nối được {{ provider_info.provider_name if provider_info else 'AI' }}
+                                {% else %}
+                                    Lỗi {{ provider_info.provider_name if provider_info else 'AI' }}
+                                {% endif %}
                             </div>
                             <div class="mt-1">{{ error }}</div>
                             {% if error_type == 'QUOTA_EXCEEDED' %}
                             <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Chi tiết kỹ thuật trong <code>logs/app.log</code></div>
                             {% elif error_type == 'BUSY' %}
-                            <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Hệ thống đã thử lại có giới hạn. Chi tiết trong <code>logs/app.log</code></div>
+                            <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Research đã dừng và không tự động thử lại để tiết kiệm hạn mức. Chi tiết trong <code>logs/app.log</code></div>
                             {% endif %}
                         </div>
                     </div>
@@ -110,7 +130,7 @@
                 <ul class="text-secondary small mb-0">
                     <li class="mb-2"><strong class="text-white">Quy tắc 1 Yêu cầu DUY NHẤT:</strong> Mỗi lần bấm chạy chỉ gửi đúng 1 yêu cầu AI duy nhất. Không tự động thử lại vô tận, không tự động fallback model phụ làm tốn thêm hạn mức.</li>
                     <li class="mb-2"><strong class="text-white">Bộ nhớ đệm thông minh:</strong> Tự động tái sử dụng kết quả đã nghiên cứu trước đó nếu cùng ngành hàng (0 lượt gọi AI tốn thêm).</li>
-                    <li class="mb-2"><strong class="text-white">Gemini AI</strong> tự động phân tích và tạo: Tên tiếng Việt, Tên tiếng Trung chuẩn thương mại, Từ khóa tìm kiếm tự nhiên trên Douyin, Góc nội dung (Content Angle) và Câu giật tít mở đầu (Hook).</li>
+                    <li class="mb-2"><strong class="text-white">{{ provider_info.provider_name if provider_info else 'AI Provider' }}</strong> tự động phân tích và tạo: Tên tiếng Việt, Tên tiếng Trung chuẩn thương mại, Từ khóa tìm kiếm tự nhiên trên Douyin, Góc nội dung (Content Angle) và Câu giật tít mở đầu (Hook).</li>
                     <li class="mb-2"><strong class="text-white">Mã sản phẩm</strong> được đánh số tự động dạng: <code class="text-info">P0001</code>, <code class="text-info">P0002</code>...</li>
                     <li>Sau khi tạo, các sản phẩm sẽ được lưu vào cơ sở dữ liệu SQLite và sẵn sàng cho bước tìm kiếm Douyin.</li>
                 </ul>
@@ -135,22 +155,27 @@
         UNKNOWN:        '#6b7280',
     };
 
+    const activeProviderId = "{{ provider_info.provider_id if provider_info else 'gemini' }}";
+    const activeProviderName = "{{ provider_info.provider_name if provider_info else 'AI' }}";
+
     // Apply initial status from server render
-    const initialStatus = "{{ gemini_status.status if gemini_status else 'UNKNOWN' }}";
+    const initialStatus = "{{ provider_info.status if provider_info else (gemini_status.status if gemini_status else 'UNKNOWN') }}";
     const dot = document.getElementById('researchStatusDot');
     if (dot && STATUS_COLORS[initialStatus]) dot.style.color = STATUS_COLORS[initialStatus];
 
-    // Listen for status updates from the global poller in base.html
-    window.addEventListener('geminiStatusUpdate', function(e) {
-        const d = e.detail;
-        const s = d.status || 'UNKNOWN';
-        const dot2 = document.getElementById('researchStatusDot');
-        const msg = document.getElementById('researchStatusMsg');
-        const hint = document.getElementById('researchStatusHint');
-        if (dot2) dot2.style.color = STATUS_COLORS[s] || '#6b7280';
-        if (msg)  msg.textContent = d.message || s;
-        if (hint) hint.textContent = d.hint || '';
-    });
+    // Listen for status updates from the global poller in base.html ONLY if active provider is Gemini
+    if (activeProviderId === 'gemini') {
+        window.addEventListener('geminiStatusUpdate', function(e) {
+            const d = e.detail;
+            const s = d.status || 'UNKNOWN';
+            const dot2 = document.getElementById('researchStatusDot');
+            const msg = document.getElementById('researchStatusMsg');
+            const hint = document.getElementById('researchStatusHint');
+            if (dot2) dot2.style.color = STATUS_COLORS[s] || '#6b7280';
+            if (msg)  msg.textContent = d.message || s;
+            if (hint) hint.textContent = d.hint || '';
+        });
+    }
 
     // Research form: disable button during submission (prevent double-click)
     const form = document.getElementById('researchForm');
@@ -170,8 +195,8 @@
             btn.disabled = true;
             if (btnLabel) btnLabel.textContent = 'Đang chạy nghiên cứu...';
             if (btnSpinner) btnSpinner.classList.remove('d-none');
-            if (statusMsg) statusMsg.textContent = 'Gemini đang xử lý...';
-            if (statusHint) statusHint.textContent = 'Đang gửi yêu cầu tới Gemini. Vui lòng đợi.';
+            if (statusMsg) statusMsg.textContent = activeProviderName + ' đang xử lý...';
+            if (statusHint) statusHint.textContent = 'Đang gửi đúng 1 yêu cầu duy nhất tới ' + activeProviderName + '. Vui lòng đợi.';
             const dot3 = document.getElementById('researchStatusDot');
             if (dot3) dot3.style.color = '#60a5fa';
         });

@@ -406,4 +406,24 @@ def normalize_model_name(provider_id: str, model_name: Optional[str]) -> str:
     return cleaned or "default"
 
 
+def get_active_ai_model(db=None) -> str:
+    """
+    Retrieve the configured model name for the currently active AI provider.
+    Guarantees local-only normalization without network calls.
+    """
+    pid = get_active_ai_provider(db)
+    if pid == "openai":
+        m = get_openai_model(db)
+    elif pid == "anthropic":
+        m = get_anthropic_model(db)
+    elif pid == "groq":
+        m = get_groq_model(db)
+    elif pid == "openrouter":
+        m = get_openrouter_model(db)
+    else:
+        m = get_gemini_model(db)
+    return normalize_model_name(pid, m)
+
+
+
 
