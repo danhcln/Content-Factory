@@ -41,45 +41,20 @@ router = APIRouter(tags=["research"])
 
 def _get_research_provider_info(db: Session) -> dict:
     """Load current active provider info for Research UI — local only, zero network calls."""
-    from app.services.ai import get_ai_manager
-    from app.services.ai.manager import get_provider_key_configured
-    from app.config import get_active_ai_provider, get_active_ai_model
-
-    manager = get_ai_manager()
-    active_prov = manager.get_active_provider(db=db)
-    pid = active_prov.provider_id
-    pname = "Gemini" if pid == "gemini" else active_prov.display_name
-    model = get_active_ai_model(db=db)
-    configured = get_provider_key_configured(pid, db=db)
-
-    gemini_status = GeminiStatusTracker.get_status(db=db)
-    if pid == "gemini":
-        status_code = gemini_status.get("status", "READY" if configured else "AUTH_ERROR")
-        if not configured:
-            status_code = "AUTH_ERROR"
-            status_msg = "Chưa cấu hình Gemini API Key"
-            status_hint = "Vui lòng nhập API Key trong Cài đặt."
-        else:
-            status_msg = gemini_status.get("message", "Gemini sẵn sàng")
-            status_hint = gemini_status.get("hint", f"Mô hình: {model}. Mỗi lượt chạy gửi đúng 1 yêu cầu duy nhất tới Gemini.")
-    else:
-        status_code = "READY" if configured else "AUTH_ERROR"
-        status_msg = f"{pname} đã cấu hình và sẵn sàng" if configured else f"Chưa cấu hình API Key cho {pname}"
-        status_hint = (
-            f"Mô hình: {model}. Mỗi lượt chạy gửi đúng 1 yêu cầu duy nhất tới {pname}."
-            if configured
-            else f"Vui lòng thiết lập API Key cho {pname} trong Cài đặt."
-        )
-
+    from app.services.ai.status import get_active_provider_status
+    st = get_active_provider_status(db=db)
     return {
-        "provider_id": pid,
-        "provider_name": pname,
-        "model": model,
-        "configured": configured,
-        "status": status_code,
-        "status_msg": status_msg,
-        "status_hint": status_hint,
-        "gemini_status": gemini_status
+        "provider_id": st["provider_id"],
+        "provider_name": st["display_name"],
+        "short_name": st["short_name"],
+        "model": st["model"],
+        "configured": st["configured"],
+        "status": st["status"],
+        "status_msg": st["status_msg"],
+        "status_hint": st["status_hint"],
+        "badge_label": st["badge_label"],
+        "badge_color": st["badge_color"],
+        "gemini_status": st.get("gemini_status")
     }
 
 
@@ -128,6 +103,7 @@ def get_research_page(
             "fresh_val": fresh,
             "cached_count": cached_count,
             "provider_info": prov_info,
+            "ai_status": prov_info,
             "gemini_status": prov_info.get("gemini_status")
         }
     )
@@ -219,6 +195,7 @@ def run_research(
                 "product_count_val": product_count,
                 "fresh_val": fresh,
                 "provider_info": prov_info,
+                "ai_status": prov_info,
                 "gemini_status": prov_info.get("gemini_status")
             },
             status_code=429
@@ -279,6 +256,7 @@ def run_research(
                 "product_count_val": product_count,
                 "fresh_val": fresh,
                 "provider_info": prov_info,
+                "ai_status": prov_info,
                 "gemini_status": prov_info.get("gemini_status")
             },
             status_code=400

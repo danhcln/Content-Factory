@@ -111,6 +111,36 @@
                         </label>
                     </div>
 
+                    <!-- Truthful Workflow Progress Component -->
+                    <div id="researchProgressCard" class="card bg-dark border border-info-subtle mb-3 d-none">
+                        <div class="card-body p-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span class="fw-semibold text-white small d-flex align-items-center" id="progressStageTitle">
+                                    <span class="spinner-border spinner-border-sm text-info me-2" id="progressSpinner"></span>
+                                    <span id="progressStageText">Chuẩn bị nghiên cứu...</span>
+                                </span>
+                                <span class="badge bg-info-subtle text-info fw-bold" id="progressPercentBadge">0%</span>
+                            </div>
+                            <div class="progress mb-2" style="height: 10px; background-color: #1e293b;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                                     role="progressbar" 
+                                     id="researchProgressBar" 
+                                     style="width: 0%;" 
+                                     aria-valuenow="0" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                </div>
+                            </div>
+                            <div class="small text-secondary" id="progressDetailText">
+                                Đang chuẩn bị gửi yêu cầu...
+                            </div>
+                            <div class="small text-muted mt-2 border-top border-secondary-subtle pt-2" style="font-size: 0.75rem;">
+                                <i class="bi bi-shield-lock-fill me-1 text-info"></i>
+                                <strong>Bảo vệ Invariant:</strong> Mỗi lượt chạy gửi đúng 1 yêu cầu duy nhất tới {{ provider_info.provider_name }}. Vui lòng không đóng trang.
+                            </div>
+                        </div>
+                    </div>
+
                     <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" id="btnRunResearch">
                         <i class="bi bi-stars me-1"></i>
                         <span id="btnRunResearchLabel">RUN RESEARCH (Chạy nghiên cứu)</span>
@@ -128,7 +158,7 @@
             </div>
             <div class="card-body">
                 <ul class="text-secondary small mb-0">
-                    <li class="mb-2"><strong class="text-white">Quy tắc 1 Yêu cầu DUY NHẤT:</strong> Mỗi lần bấm chạy chỉ gửi đúng 1 yêu cầu AI duy nhất. Không tự động thử lại vô tận, không tự động fallback model phụ làm tốn thêm hạn mức.</li>
+                    <li class="mb-2"><strong class="text-white">Quy tắc 1 Yêu cầu DUY NHẤT:</strong> Mỗi lần bấm chạy chỉ gửi đúng 1 yêu cầu duy nhất tới {{ provider_info.provider_name if provider_info else 'AI Provider' }}. Không tự động thử lại vô tận, không tự động fallback model phụ làm tốn thêm hạn mức.</li>
                     <li class="mb-2"><strong class="text-white">Bộ nhớ đệm thông minh:</strong> Tự động tái sử dụng kết quả đã nghiên cứu trước đó nếu cùng ngành hàng (0 lượt gọi AI tốn thêm).</li>
                     <li class="mb-2"><strong class="text-white">{{ provider_info.provider_name if provider_info else 'AI Provider' }}</strong> tự động phân tích và tạo: Tên tiếng Việt, Tên tiếng Trung chuẩn thương mại, Từ khóa tìm kiếm tự nhiên trên Douyin, Góc nội dung (Content Angle) và Câu giật tít mở đầu (Hook).</li>
                     <li class="mb-2"><strong class="text-white">Mã sản phẩm</strong> được đánh số tự động dạng: <code class="text-info">P0001</code>, <code class="text-info">P0002</code>...</li>
@@ -163,7 +193,20 @@
     const dot = document.getElementById('researchStatusDot');
     if (dot && STATUS_COLORS[initialStatus]) dot.style.color = STATUS_COLORS[initialStatus];
 
-    // Listen for status updates from the global poller in base.html ONLY if active provider is Gemini
+    // Listen for status updates from the global poller
+    window.addEventListener('aiStatusUpdate', function(e) {
+        const d = e.detail;
+        if (d.provider_id === activeProviderId) {
+            const s = d.status || 'UNKNOWN';
+            const dot2 = document.getElementById('researchStatusDot');
+            const msg = document.getElementById('researchStatusMsg');
+            const hint = document.getElementById('researchStatusHint');
+            if (dot2) dot2.style.color = d.badge_color || STATUS_COLORS[s] || '#6b7280';
+            if (msg)  msg.textContent = d.status_msg || d.message || s;
+            if (hint) hint.textContent = d.status_hint || d.hint || '';
+        }
+    });
+
     if (activeProviderId === 'gemini') {
         window.addEventListener('geminiStatusUpdate', function(e) {
             const d = e.detail;
@@ -177,28 +220,69 @@
         });
     }
 
-    // Research form: disable button during submission (prevent double-click)
+    // Research form: double-submit protection + honest workflow stages
     const form = document.getElementById('researchForm');
     const btn = document.getElementById('btnRunResearch');
     const btnLabel = document.getElementById('btnRunResearchLabel');
     const btnSpinner = document.getElementById('btnRunResearchSpinner');
-    const statusMsg = document.getElementById('researchStatusMsg');
-    const statusHint = document.getElementById('researchStatusHint');
+    const progressCard = document.getElementById('researchProgressCard');
+    const progressStageText = document.getElementById('progressStageText');
+    const progressPercent = document.getElementById('progressPercentBadge');
+    const progressBar = document.getElementById('researchProgressBar');
+    const progressDetail = document.getElementById('progressDetailText');
+
+    let isSubmitting = false;
+
+    if (btn) {
+        btn.addEventListener('click', function(e) {
+            if (isSubmitting) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        });
+    }
 
     if (form && btn) {
         form.addEventListener('submit', function(e) {
-            if (btn.disabled) {
+            if (isSubmitting) {
                 e.preventDefault();
+                e.stopPropagation();
                 return false;
             }
-            // Show processing state immediately
-            btn.disabled = true;
-            if (btnLabel) btnLabel.textContent = 'Đang chạy nghiên cứu...';
+            isSubmitting = true;
+
+            // 1. Double-submit protection: Lock immediately, disable button
+            setTimeout(() => {
+                btn.disabled = true;
+            }, 10);
+            if (btnLabel) btnLabel.textContent = 'Đang nghiên cứu...';
             if (btnSpinner) btnSpinner.classList.remove('d-none');
-            if (statusMsg) statusMsg.textContent = activeProviderName + ' đang xử lý...';
-            if (statusHint) statusHint.textContent = 'Đang gửi đúng 1 yêu cầu duy nhất tới ' + activeProviderName + '. Vui lòng đợi.';
-            const dot3 = document.getElementById('researchStatusDot');
-            if (dot3) dot3.style.color = '#60a5fa';
+
+            // 2. Reveal truthful progress UX
+            if (progressCard) {
+                progressCard.classList.remove('d-none');
+            }
+
+            // Stage 0%: Chuẩn bị nghiên cứu
+            if (progressPercent) progressPercent.textContent = '0%';
+            if (progressBar) {
+                progressBar.style.width = '0%';
+                progressBar.classList.add('progress-bar-striped', 'progress-bar-animated');
+            }
+            if (progressStageText) progressStageText.textContent = 'Chuẩn bị nghiên cứu';
+            if (progressDetail) progressDetail.textContent = 'Đang kiểm tra thông số và bộ nhớ đệm...';
+
+            // Stage 10%: Đã gửi yêu cầu tới {provider_display_name}
+            setTimeout(() => {
+                if (progressPercent) progressPercent.textContent = '10%';
+                if (progressBar) progressBar.style.width = '10%';
+                if (progressStageText) progressStageText.textContent = 'Đã gửi yêu cầu tới ' + activeProviderName;
+                if (progressDetail) progressDetail.textContent = 'Đang chờ ' + activeProviderName + ' phản hồi...';
+            }, 250);
+
+            // WHILE WAITING: Keep animated indeterminate progress bar.
+            // ABSOLUTELY NO FAKE INCREMENTAL PERCENTAGES (37%, 52%, etc.).
         });
     }
 })();

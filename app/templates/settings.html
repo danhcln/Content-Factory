@@ -577,40 +577,41 @@
         </form>
     </div>
 
-    <!-- Quick Diagnostics & Gemini Usage Panel -->
+    <!-- Quick Diagnostics & Primary AI Usage Panel -->
     <div class="col-lg-4">
-        <!-- Gemini Status Card -->
+        <!-- Primary Active AI Status Card -->
         <div class="card mb-4 border-secondary-subtle">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-stars text-primary me-2"></i>Trạng Thái Gemini</span>
-                <span class="badge bg-primary-subtle text-primary small">{{ settings.gemini_model }}</span>
+                <span><i class="bi bi-cpu text-primary me-2"></i>Trạng Thái {{ settings.active_ai.display_name }}</span>
+                <span class="badge bg-primary-subtle text-primary small" id="activeAiModelBadge">{{ settings.active_ai.model }}</span>
             </div>
             <div class="card-body">
-                <div class="gemini-settings-status mb-3" id="settingsGeminiStatusBox">
+                <div class="gemini-settings-status mb-3" id="settingsAiStatusBox">
                     <div class="d-flex align-items-center gap-2">
-                        <span class="gemini-status-dot fs-5" id="settingsStatusDot">●</span>
+                        <span class="gemini-status-dot fs-5" id="settingsStatusDot" style="color: {{ settings.active_ai.badge_color }};">●</span>
                         <div>
-                            <div class="fw-semibold" id="settingsStatusMsg">Đang tải...</div>
-                            <div class="small text-secondary" id="settingsStatusHint"></div>
+                            <div class="fw-semibold" id="settingsStatusMsg">{{ settings.active_ai.status_msg }}</div>
+                            <div class="small text-secondary" id="settingsStatusHint">{{ settings.active_ai.status_hint }}</div>
                         </div>
                     </div>
                     <div class="mt-2 small text-secondary" id="settingsStatusTime"></div>
                 </div>
 
-                <!-- KIỂM TRA GEMINI button — user-initiated only, costs 1 Gemini request -->
-                <button class="btn btn-outline-info w-100 fw-semibold" id="btnCheckGemini" title="Nhấn để kiểm tra kết nối Gemini. Sẽ gửi 1 yêu cầu nhỏ tới Gemini.">
-                    <i class="bi bi-stars me-1"></i> KIỂM TRA GEMINI
-                    <span id="checkGeminiSpinner" class="spinner-border spinner-border-sm ms-2 d-none"></span>
+                <!-- Primary Diagnostic Action Button — user-initiated only, calls test-connection for active provider -->
+                <button class="btn btn-outline-info w-100 fw-semibold btn-test-provider" id="btnCheckPrimaryAi" data-provider="{{ settings.active_ai.provider_id }}" title="Nhấn để kiểm tra kết nối {{ settings.active_ai.display_name }}. Sẽ gửi 1 yêu cầu kiểm tra (0 token sinh text).">
+                    <i class="bi bi-plug me-1"></i> {{ settings.active_ai.diagnostic_action }}
+                    <span id="checkPrimaryAiSpinner" class="spinner-border spinner-border-sm ms-2 d-none"></span>
                 </button>
                 <div class="form-text text-secondary text-center mt-1">
-                    <i class="bi bi-info-circle me-1"></i>Sẽ gửi 1 yêu cầu nhỏ tới Gemini API
+                    <i class="bi bi-info-circle me-1"></i>Kiểm tra kết nối và hạn mức cấu hình (0 token sinh text)
                 </div>
+                <div class="provider-test-status small mt-2" id="test_status_card_{{ settings.active_ai.provider_id }}"></div>
 
+                {% if settings.active_ai.provider_id == 'gemini' %}
                 <hr class="border-secondary-subtle my-3">
-
                 <!-- Gemini Local Usage Counter -->
                 <div class="small fw-bold text-secondary text-uppercase mb-2">
-                    <i class="bi bi-graph-up me-1"></i>Thống kê cục bộ (Hôm nay)
+                    <i class="bi bi-graph-up me-1"></i>Thống kê cục bộ Gemini (Hôm nay)
                 </div>
                 <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
                     <span class="text-secondary small">Yêu cầu đã gửi:</span>
@@ -633,6 +634,26 @@
                 <div class="form-text text-secondary mt-2 small">
                     <i class="bi bi-info-circle me-1"></i>{{ settings.gemini_usage.disclaimer }}
                 </div>
+                {% else %}
+                <hr class="border-secondary-subtle my-3">
+                <!-- Optional Gemini Diagnostic Section when another provider is active -->
+                <div class="small fw-bold text-secondary text-uppercase mb-2">
+                    <i class="bi bi-info-circle me-1"></i>Chẩn đoán riêng Gemini (Tùy chọn)
+                </div>
+                <div class="small text-secondary mb-2">
+                    Nhà cung cấp chính hiện tại là <strong>{{ settings.active_ai.display_name }}</strong>. Dưới đây là trạng thái cục bộ của Google Gemini nếu bạn cần tham khảo:
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
+                    <span class="text-secondary small">Trạng thái Gemini:</span>
+                    <span class="fw-semibold text-white">{{ settings.active_ai.gemini_status.status }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center py-1 border-bottom border-secondary-subtle">
+                    <span class="text-secondary small">Lỗi Quota Gemini (Hôm nay):</span>
+                    <span class="fw-bold {% if settings.gemini_usage.quota_errors > 0 %}text-warning{% else %}text-secondary{% endif %}">
+                        {{ settings.gemini_usage.quota_errors }}
+                    </span>
+                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -643,12 +664,22 @@
             </div>
             <div class="card-body">
                 <div class="mb-3">
-                    <button class="btn btn-outline-info w-100 mb-2 text-start d-flex justify-content-between align-items-center" id="btnTestGemini">
-                        <span><i class="bi bi-stars me-2"></i>KIỂM TRA GEMINI</span>
+                    <button class="btn btn-outline-info w-100 mb-2 text-start d-flex justify-content-between align-items-center btn-test-provider" id="btnTestActiveAi" data-provider="{{ settings.active_ai.provider_id }}">
+                        <span><i class="bi bi-cpu me-2"></i>{{ settings.active_ai.diagnostic_action }}</span>
                         <i class="bi bi-arrow-right"></i>
                     </button>
-                    <div id="geminiTestResult" class="small text-secondary"></div>
+                    <div id="test_status_diag_{{ settings.active_ai.provider_id }}" class="small text-secondary"></div>
                 </div>
+
+                {% if settings.active_ai.provider_id != 'gemini' %}
+                <div class="mb-3">
+                    <button class="btn btn-outline-secondary w-100 mb-2 text-start d-flex justify-content-between align-items-center btn-test-provider" id="btnTestGeminiOptional" data-provider="gemini">
+                        <span><i class="bi bi-stars me-2"></i>KIỂM TRA GEMINI (Tùy chọn)</span>
+                        <i class="bi bi-arrow-right"></i>
+                    </button>
+                    <div id="test_status_diag_gemini" class="small text-secondary"></div>
+                </div>
+                {% endif %}
 
                 <div class="mb-3">
                     <button class="btn btn-outline-primary w-100 mb-2 text-start d-flex justify-content-between align-items-center" id="btnTestFFmpeg">
@@ -693,18 +724,20 @@
         UNKNOWN:        '#6b7280',
     };
 
-    // ── Settings Gemini Status Panel ──────────────────────────────
+    // ── Settings Active AI Status Panel ──────────────────────────
     function applySettingsStatus(data) {
         const dot  = document.getElementById('settingsStatusDot');
         const msg  = document.getElementById('settingsStatusMsg');
         const hint = document.getElementById('settingsStatusHint');
         const time = document.getElementById('settingsStatusTime');
+        const modelBadge = document.getElementById('activeAiModelBadge');
         if (!dot) return;
 
         const s = data.status || 'UNKNOWN';
-        dot.style.color = STATUS_COLORS[s] || '#6b7280';
-        if (msg)  msg.textContent = data.message || s;
-        if (hint) hint.textContent = data.hint || '';
+        dot.style.color = data.badge_color || STATUS_COLORS[s] || '#6b7280';
+        if (msg)  msg.textContent = data.status_msg || data.message || s;
+        if (hint) hint.textContent = data.status_hint || data.hint || '';
+        if (modelBadge && data.model) modelBadge.textContent = data.model;
 
         let timeText = '';
         if (data.last_success_at) {
@@ -715,10 +748,10 @@
         if (time) time.textContent = timeText;
     }
 
-    // Load initial status on page load (local endpoint, no Gemini call)
+    // Load initial status on page load (local endpoint, zero external quota)
     async function loadSettingsStatus() {
         try {
-            const r = await fetch('/api/gemini/status', { cache: 'no-store' });
+            const r = await fetch('/api/ai/active-status', { cache: 'no-store' });
             if (r.ok) {
                 const d = await r.json();
                 applySettingsStatus(d);
@@ -727,8 +760,13 @@
     }
 
     // React to global badge updates
-    window.addEventListener('geminiStatusUpdate', function(e) {
+    window.addEventListener('aiStatusUpdate', function(e) {
         applySettingsStatus(e.detail);
+    });
+    window.addEventListener('geminiStatusUpdate', function(e) {
+        if ("{{ settings.active_ai.provider_id }}" === 'gemini') {
+            applySettingsStatus(e.detail);
+        }
     });
 
     document.addEventListener('DOMContentLoaded', loadSettingsStatus);
@@ -819,14 +857,18 @@
     document.querySelectorAll('.btn-test-provider').forEach(btn => {
         btn.addEventListener('click', async function() {
             const providerId = this.getAttribute('data-provider');
-            const statusDiv = document.getElementById(`test_status_${providerId}`);
+            const targetDivs = [
+                document.getElementById(`test_status_${providerId}`),
+                document.getElementById(`test_status_card_${providerId}`),
+                document.getElementById(`test_status_diag_${providerId}`),
+            ].filter(Boolean);
             const spinner = this.querySelector('.spinner-border');
             
             this.disabled = true;
             if (spinner) spinner.classList.remove('d-none');
-            if (statusDiv) {
-                statusDiv.innerHTML = '<span class="text-info"><i class="spinner-border spinner-border-sm me-1"></i>Đang kiểm tra kết nối...</span>';
-            }
+            targetDivs.forEach(div => {
+                div.innerHTML = '<span class="text-info"><i class="spinner-border spinner-border-sm me-1"></i>Đang kiểm tra kết nối...</span>';
+            });
 
             try {
                 const resp = await fetch('/api/settings/ai/test-connection', {
@@ -837,24 +879,22 @@
                 const data = await resp.json();
 
                 if (data.connected) {
-                    if (statusDiv) {
-                        statusDiv.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message || 'Kết nối thành công!'}</span>`;
-                    }
+                    targetDivs.forEach(div => {
+                        div.innerHTML = `<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>${data.message || 'Kết nối thành công!'}</span>`;
+                    });
                 } else {
                     const errDetail = data.message || 'Không thể kết nối';
-                    if (statusDiv) {
-                        statusDiv.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>${errDetail}</span>`;
-                    }
+                    targetDivs.forEach(div => {
+                        div.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>${errDetail}</span>`;
+                    });
                 }
 
-                // If testing Gemini, also refresh status box
-                if (providerId === 'gemini') {
-                    await loadSettingsStatus();
-                }
+                // If testing the active provider or Gemini, refresh status box
+                await loadSettingsStatus();
             } catch (err) {
-                if (statusDiv) {
-                    statusDiv.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>Lỗi kết nối: ${err.message}</span>`;
-                }
+                targetDivs.forEach(div => {
+                    div.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>Lỗi kết nối: ${err.message}</span>`;
+                });
             } finally {
                 this.disabled = false;
                 if (spinner) spinner.classList.add('d-none');

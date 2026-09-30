@@ -34,6 +34,17 @@
             </div>
             <div class="col-6 col-md-3 col-xl">
                 <div class="p-2 rounded bg-dark-subtle border border-secondary-subtle d-flex align-items-center gap-2">
+                    <span class="fs-5" style="color: {{ system_status.ai_badge_color or '#22c55e' }};">●</span>
+                    <div>
+                        <div class="small fw-semibold text-white">{{ system_status.ai_name }}</div>
+                        <div class="text-secondary" style="font-size: 11px;">
+                            {{ system_status.ai_model }} ({{ system_status.ai_badge_label }})
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3 col-xl">
+                <div class="p-2 rounded bg-dark-subtle border border-secondary-subtle d-flex align-items-center gap-2">
                     <span class="{% if system_status.ffmpeg_ready %}text-success{% else %}text-danger{% endif %} fs-5">●</span>
                     <div>
                         <div class="small fw-semibold text-white">FFmpeg</div>

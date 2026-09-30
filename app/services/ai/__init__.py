@@ -23,6 +23,7 @@ from app.services.ai.manager import (
     set_ai_manager,
 )
 from app.services.ai.providers.gemini import GeminiProvider
+from app.services.ai.status import get_active_provider_status
 
 __all__ = [
     "AIProvider",

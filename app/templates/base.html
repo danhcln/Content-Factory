@@ -105,12 +105,12 @@
                     <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">
                         <i class="bi bi-hdd-network me-1"></i> Local Server Active
                     </span>
-                    <!-- Global Gemini Status Badge -->
-                    <a href="/settings" id="geminiHeaderBadge" class="gemini-header-badge" title="Gemini Status — click for Settings">
-                        <span class="gemini-dot" id="geminiHeaderDot">●</span>
+                    <!-- Global AI Status Badge -->
+                    <a href="/settings" id="aiHeaderBadge" class="gemini-header-badge" title="AI Status — click for Settings">
+                        <span class="gemini-dot" id="aiHeaderDot" style="color: {{ ai_status.badge_color if ai_status else '#6b7280' }};">●</span>
                         <span class="gemini-label">
-                            <span class="gemini-model-name">Gemini</span>
-                            <span id="geminiHeaderStatus">...</span>
+                            <span class="gemini-model-name" id="aiHeaderName">{{ ai_status.short_name if ai_status else (provider_info.short_name if provider_info else 'AI') }}</span>
+                            <span id="aiHeaderStatus">{{ ai_status.badge_label if ai_status else (provider_info.badge_label if provider_info else '...') }}</span>
                         </span>
                     </a>
                     <a href="/settings" class="btn btn-sm btn-outline-secondary">
@@ -130,7 +130,7 @@
     <!-- Custom JS -->
     <script src="/static/js/main.js"></script>
 
-    <!-- Global Gemini Status Poller (local endpoint only, zero Gemini quota) -->
+    <!-- Global AI Status Poller (local endpoint only, zero external quota) -->
     <script>
     (function() {
         const STATUS_COLORS = {
@@ -157,35 +157,41 @@
         };
 
         function applyStatus(data) {
-            const dot = document.getElementById('geminiHeaderDot');
-            const lbl = document.getElementById('geminiHeaderStatus');
+            const dot = document.getElementById('aiHeaderDot') || document.getElementById('geminiHeaderDot');
+            const lbl = document.getElementById('aiHeaderStatus') || document.getElementById('geminiHeaderStatus');
+            const nameEl = document.getElementById('aiHeaderName') || document.querySelector('.gemini-model-name');
+            if (nameEl) {
+                const pName = data.short_name || data.provider_short_name || data.provider_name;
+                if (pName) nameEl.textContent = pName;
+            }
             if (!dot || !lbl) return;
             const s = data.status || 'UNKNOWN';
-            dot.style.color = STATUS_COLORS[s] || '#6b7280';
-            lbl.textContent = STATUS_LABELS[s] || s;
+            dot.style.color = data.badge_color || STATUS_COLORS[s] || '#6b7280';
+            lbl.textContent = data.badge_label || STATUS_LABELS[s] || s;
             // Pulse animation when CHECKING
-            const badge = document.getElementById('geminiHeaderBadge');
+            const badge = document.getElementById('aiHeaderBadge') || document.getElementById('geminiHeaderBadge');
             if (badge) {
                 badge.classList.toggle('gemini-badge-pulse', s === 'CHECKING');
             }
         }
 
-        async function pollGeminiStatus() {
+        async function pollAIStatus() {
             try {
-                const r = await fetch('/api/gemini/status', { cache: 'no-store' });
+                const r = await fetch('/api/ai/active-status', { cache: 'no-store' });
                 if (r.ok) {
                     const d = await r.json();
                     applyStatus(d);
-                    // Dispatch event for pages that listen
-                    window.dispatchEvent(new CustomEvent('geminiStatusUpdate', { detail: d }));
+                    // Dispatch events for pages that listen
+                    window.dispatchEvent(new CustomEvent('aiStatusUpdate', { detail: d }));
+                    window.dispatchEvent(new CustomEvent('geminiStatusUpdate', { detail: d.gemini_status || d }));
                 }
             } catch(e) { /* silently ignore — local endpoint */ }
         }
 
         // Initial load + poll every 20s
         document.addEventListener('DOMContentLoaded', function() {
-            pollGeminiStatus();
-            setInterval(pollGeminiStatus, 20000);
+            pollAIStatus();
+            setInterval(pollAIStatus, 20000);
         });
     })();
     </script>

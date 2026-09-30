@@ -43,11 +43,13 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
     from app.services.ffmpeg_utils import check_ffmpeg_available
     from app.services.tts.vieneu_provider import VieNeuProvider
     from app.services.publishing.manager import PublishingManager
+    from app.services.ai.status import get_active_provider_status
 
     ff_status = check_ffmpeg_available()
     vieneu_prov = VieNeuProvider()
     pub_mgr = PublishingManager()
     social_connections = pub_mgr.get_all_connections(db)
+    active_ai = get_active_provider_status(db=db)
 
     system_status = {
         "server_running": True,
@@ -57,7 +59,13 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
         "downloader_ready": True,
         "auto_editor_ready": bool(ff_status.get("ready")),
         "social_publishing_ready": True,
-        "social_connections": social_connections
+        "social_connections": social_connections,
+        "ai_status": active_ai,
+        "ai_ready": active_ai["configured"] and active_ai["status"] == "READY",
+        "ai_name": active_ai["short_name"],
+        "ai_model": active_ai["model"],
+        "ai_badge_label": active_ai["badge_label"],
+        "ai_badge_color": active_ai["badge_color"],
     }
 
     stats = {
@@ -79,6 +87,7 @@ def get_dashboard(request: Request, db: Session = Depends(get_db)):
             "recent_videos": recent_videos,
             "recent_errors": recent_errors,
             "system_status": system_status,
+            "ai_status": active_ai,
             "active_page": "dashboard"
         }
     )

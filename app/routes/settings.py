@@ -260,8 +260,12 @@ def get_current_settings(db: Session = None):
     fallback_providers = get_ai_fallback_providers(db)
     fallback_on_quota = get_ai_fallback_on_quota(db)
 
+    from app.services.ai.status import get_active_provider_status
+    active_ai_status = get_active_provider_status(db)
+
     return {
         "active_ai_provider": active_prov,
+        "active_ai": active_ai_status,
         "ai_fallback_enabled": fallback_enabled,
         "ai_fallback_providers": fallback_providers,
         "ai_fallback_on_quota": fallback_on_quota,
@@ -308,6 +312,7 @@ def get_settings_page(request: Request, db: Session = Depends(get_db)):
         name="settings.html",
         context={
             "settings": settings_data,
+            "ai_status": settings_data.get("active_ai"),
             "active_page": "settings",
             "message": None
         }
@@ -621,6 +626,7 @@ def api_get_ai_status(db: Session = Depends(get_db)):
         ("anthropic", "Anthropic Claude", "direct", False, get_anthropic_api_key, get_anthropic_model),
         ("groq", "Groq", "direct", False, get_groq_api_key, get_groq_model),
         ("openrouter", "OpenRouter", "gateway", True, get_openrouter_api_key, get_openrouter_model),
+        ("mwapi", "MWAPI Gateway", "gateway", True, get_mwapi_api_key, get_mwapi_model),
     ]:
         raw_k = key_fn(db)
         providers_status[pid] = {
@@ -637,6 +643,17 @@ def api_get_ai_status(db: Session = Depends(get_db)):
         "active_provider": active_prov,
         "providers": providers_status
     })
+
+
+@router.get("/api/ai/active-status")
+@router.get("/api/ai/status")
+def api_get_active_ai_status(db: Session = Depends(get_db)):
+    """
+    Return local snapshot of the current active AI provider.
+    Guarantees ZERO external network calls and ZERO token consumption.
+    """
+    from app.services.ai.status import get_active_provider_status
+    return JSONResponse(content=get_active_provider_status(db=db))
 
 
 @router.get("/api/settings/ai/diagnostics")

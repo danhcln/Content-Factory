@@ -4,6 +4,38 @@
 {% block page_title %}Danh Sách Sản Phẩm (Products){% endblock %}
 
 {% block content %}
+{% if request.query_params.get('success') == '1' %}
+    {% if request.query_params.get('cached') == '1' %}
+    <div class="alert alert-info alert-dismissible fade show mb-4 border border-info-subtle" role="alert">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-bold text-white"><i class="bi bi-lightning-charge-fill me-2 text-warning"></i>100% Hoàn tất nghiên cứu (Bộ nhớ đệm)</span>
+            <span class="badge bg-success-subtle text-success fw-bold">0 LƯỢT GỌI AI</span>
+        </div>
+        <div class="text-white-50 small mb-2">
+            <strong>Đã tìm thấy kết quả trong bộ nhớ đệm — không gọi AI.</strong> Tái sử dụng {{ request.query_params.get('count', '') }} sản phẩm đã lưu cho ngành hàng <em>"{{ request.query_params.get('niche', '') }}"</em> mà không tiêu tốn token hoặc hạn mức.
+        </div>
+        <div class="progress" style="height: 6px; background-color: #1e293b;">
+            <div class="progress-bar bg-success" role="progressbar" style="width: 100%;" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% else %}
+    <div class="alert alert-success alert-dismissible fade show mb-4 border border-success-subtle" role="alert">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-bold text-white"><i class="bi bi-check-circle-fill me-2 text-success"></i>100% Hoàn tất nghiên cứu</span>
+            <span class="badge bg-primary-subtle text-primary fw-bold">1 YÊU CẦU DUY NHẤT</span>
+        </div>
+        <div class="text-white-50 small mb-2">
+            Đã nhận phản hồi từ AI, kiểm tra cục bộ và lưu thành công {{ request.query_params.get('count', '') }} sản phẩm cho ngành hàng <em>"{{ request.query_params.get('niche', '') }}"</em>.
+        </div>
+        <div class="progress" style="height: 6px; background-color: #1e293b;">
+            <div class="progress-bar bg-success" role="progressbar" style="width: 100%;" aria-valuenow="100" aria-valuemin="0" aria-valuemax="100"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+{% endif %}
+
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span><i class="bi bi-box-seam me-2 text-primary"></i>Tất Cả Sản Phẩm ({{ products|length }})</span>
