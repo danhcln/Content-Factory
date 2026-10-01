@@ -27,6 +27,12 @@ class TestGeminiHardening(unittest.TestCase):
     def setUp(self):
         init_db()
         self.db = SessionLocal()
+        s = self.db.query(Setting).filter(Setting.key == "active_ai_provider").first()
+        if s:
+            s.value = "gemini"
+        else:
+            self.db.add(Setting(key="active_ai_provider", value="gemini"))
+        self.db.commit()
         self.gemini = GeminiService()
         self.script_service = ScriptService()
         self.content_service = ContentService()
@@ -144,9 +150,15 @@ class TestGeminiHardening(unittest.TestCase):
 
     # ==========================================================
     # 4. ONE-CALL 7-PLATFORM CONTENT GENERATION
-    # ==========================================================
     def test_one_call_7_platform_content(self):
         """Verify caption generation produces all 7 platforms in ONE single request."""
+        # Clean up any leftover test data
+        self.db.query(Content).filter(Content.video_id == "VTEST_7P").delete()
+        self.db.query(Voice).filter(Voice.video_id == "VTEST_7P").delete()
+        self.db.query(Video).filter(Video.video_id == "VTEST_7P").delete()
+        self.db.query(Product).filter(Product.product_id == "PTEST_7P").delete()
+        self.db.commit()
+
         # Create test video and voice record
         prod = Product(product_id="PTEST_7P", niche="Tech", name_vietnamese="Tai nghe Bluetooth", status="RESEARCHED")
         self.db.add(prod)

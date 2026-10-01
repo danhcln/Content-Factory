@@ -379,7 +379,7 @@ class TestResearchLowConsumption(unittest.TestCase):
             # 503
             mock_generate.side_effect = GeminiServiceUnavailableError("Model overloaded 503")
             r_503 = client.post("/research", data={"niche": "Gia dụng", "product_count": 5})
-            self.assertEqual(r_503.status_code, 400)
+            self.assertEqual(r_503.status_code, 503)
             self.assertIn("tạm thời quá tải", r_503.text)
 
             # 429

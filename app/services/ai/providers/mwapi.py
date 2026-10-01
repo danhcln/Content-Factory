@@ -37,6 +37,7 @@ from app.services.ai.providers.common import (
     sanitize_secrets,
     global_model_cache,
     classify_http_error,
+    build_httpx_timeout,
 )
 from app.config import get_mwapi_api_key, get_mwapi_model, normalize_model_name
 
@@ -96,6 +97,8 @@ class MWAPIProvider(AIProvider):
                 temperature = options.temperature
             if options.system_instruction is not None:
                 system_instruction = options.system_instruction
+            if options.extra_params and "httpx_timeout" in options.extra_params:
+                timeout = options.extra_params["httpx_timeout"]
 
         if not api_key:
             err = AIAuthenticationError(
@@ -137,10 +140,11 @@ class MWAPIProvider(AIProvider):
         url = f"{self.BASE_URL}/v1/chat/completions"
         total_attempts = max_retries + 1
         start_time = time.time()
+        client_timeout = build_httpx_timeout(timeout)
 
         for attempt in range(total_attempts):
             try:
-                with httpx.Client(timeout=timeout) as client:
+                with httpx.Client(timeout=client_timeout) as client:
                     resp = client.post(url, json=payload, headers=headers)
 
                 if resp.status_code == 200:
@@ -161,7 +165,9 @@ class MWAPIProvider(AIProvider):
                             model=model_name
                         )
 
-                    msg_obj = choices[0].get("message", {})
+                    choice_0 = choices[0]
+                    finish_reason = choice_0.get("finish_reason")
+                    msg_obj = choice_0.get("message", {})
                     content = msg_obj.get("content", "")
                     if content is None:
                         content = ""
@@ -185,16 +191,27 @@ class MWAPIProvider(AIProvider):
                         duration_seconds=dur,
                         input_tokens=in_tok,
                         output_tokens=out_tok,
-                        total_tokens=tot_tok
+                        total_tokens=tot_tok,
+                        finish_reason=finish_reason
                     )
+
+                    if finish_reason == "length":
+                        logger.warning(
+                            f"[RESEARCH TOKEN LIMIT REACHED] Provider={self.provider_id}, Model={model_name}, "
+                            f"OutputTokens={out_tok}, MaxTokens={max_output_tokens}"
+                        )
+
                     return content
 
+                dur = round(time.time() - start_time, 3)
                 err = classify_http_error(
                     status_code=resp.status_code,
                     response_text=resp.text,
                     provider=self.provider_id,
                     model=model_name,
-                    api_key=api_key
+                    api_key=api_key,
+                    response_headers=dict(resp.headers),
+                    duration_seconds=dur
                 )
 
                 # Retry on 500/502/503/504 if attempts remain

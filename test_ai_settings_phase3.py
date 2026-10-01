@@ -345,13 +345,14 @@ class TestMultiAISettingsPhase3(unittest.TestCase):
                     "content_angle": "Góc quay độc đáo",
                     "hook": "Câu mở đầu hấp dẫn"
                 }
+                for _ in range(5)
             ])
 
             if pid == "gemini":
                 with patch.object(provider._gemini_service, "call_gemini", return_value=valid_json) as mock_call, \
                      patch.object(manager, "get_active_provider", return_value=provider):
                     res = manager.generate_products(niche="Nhà bếp", count=5, db=mock_db)
-                    self.assertEqual(len(res), 1)
+                    self.assertEqual(len(res), 5)
                     self.assertEqual(res[0]["name_vietnamese"], "Sản phẩm gemini")
                     self.assertEqual(mock_call.call_count, 1)
                     _, kwargs = mock_call.call_args
@@ -364,7 +365,7 @@ class TestMultiAISettingsPhase3(unittest.TestCase):
 
                     res = manager.generate_products(niche="Nhà bếp", count=5, db=mock_db)
 
-                    self.assertEqual(len(res), 1)
+                    self.assertEqual(len(res), 5)
                     self.assertEqual(res[0]["name_vietnamese"], f"Sản phẩm {pid}")
 
                     # Must be called exactly ONCE with max_retries=0 and enable_fallback=False

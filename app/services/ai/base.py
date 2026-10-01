@@ -7,10 +7,14 @@ It contains ZERO provider-specific networking details.
 """
 import re
 import json
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, List
+import httpx
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("app.services.ai.base")
 
 
 # ==============================================================================
@@ -87,10 +91,20 @@ class AIBadRequestError(AIProviderError):
 
 class AIServiceUnavailableError(AIProviderError):
     """Raised when upstream server is overloaded or temporarily unavailable (HTTP 500/502/503/504)."""
-    def __init__(self, message: str, **kwargs):
+    def __init__(
+        self,
+        message: str,
+        retry_after: Optional[int] = None,
+        request_id: Optional[str] = None,
+        duration_seconds: Optional[float] = None,
+        **kwargs
+    ):
         kwargs.setdefault("error_type", "service_unavailable")
         kwargs.setdefault("status_code", 503)
         super().__init__(message, **kwargs)
+        self.retry_after = retry_after
+        self.request_id = request_id
+        self.duration_seconds = duration_seconds
 
 
 class AITimeoutError(AIProviderError):
@@ -160,6 +174,7 @@ class ExecutionMetadata:
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    finish_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -180,7 +195,8 @@ class ExecutionMetadata:
             "total_duration_seconds": self.total_duration_seconds or self.duration_seconds,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
-            "total_tokens": self.total_tokens
+            "total_tokens": self.total_tokens,
+            "finish_reason": self.finish_reason
         }
 
 
@@ -245,23 +261,81 @@ def get_user_friendly_error_message(err: Exception) -> str:
 
 def get_research_max_output_tokens(count: int) -> int:
     """
-    Deterministic token budget mapping for Research batch generation:
-    - <= 5 items:  800 tokens
-    - <= 10 items: 1500 tokens
-    - <= 20 items: 2800 tokens
-    - <= 30 items: 4000 tokens
-    - > 30 items:  6000 tokens
+    Deterministic piecewise-linear token budget mapping for Research batch generation:
+    - 1  product:   500 tokens
+    - 5  products:  800 tokens
+    - 10 products: 1500 tokens
+    - 20 products: 2800 tokens
+    - 30 products: 4000 tokens
+    - 50 products: 6000 tokens
+    Guaranteed strictly monotonic for integers 1..50.
     """
-    if count <= 5:
-        return 800
+    if count <= 1:
+        return 500
+    elif count <= 5:
+        # Slope: (800 - 500) / (5 - 1) = 300 / 4 = 75
+        return 500 + int(round((count - 1) * 75))
     elif count <= 10:
-        return 1500
+        # Slope: (1500 - 800) / (10 - 5) = 700 / 5 = 140
+        return 800 + int(round((count - 5) * 140))
     elif count <= 20:
-        return 2800
+        # Slope: (2800 - 1500) / (20 - 10) = 1300 / 10 = 130
+        return 1500 + int(round((count - 10) * 130))
     elif count <= 30:
-        return 4000
+        # Slope: (4000 - 2800) / (30 - 20) = 1200 / 10 = 120
+        return 2800 + int(round((count - 20) * 120))
+    elif count <= 50:
+        # Slope: (6000 - 4000) / (50 - 30) = 2000 / 20 = 100
+        return 4000 + int(round((count - 30) * 100))
     else:
         return 6000
+
+
+def get_research_timeout(count: int) -> float:
+    """
+    Deterministic piecewise-linear timeout scaling for Research batch generation.
+    Anchors:
+      1..5 products:  60.0s
+      10   products:  75.0s
+      20   products: 100.0s
+      30   products: 150.0s
+      50   products: 300.0s (maximum generation runway)
+    Guaranteed non-decreasing for integers 1..50.
+    """
+    if count <= 5:
+        return 60.0
+    elif count <= 10:
+        # Slope: (75.0 - 60.0) / (10 - 5) = 15.0 / 5 = 3.0
+        return round(60.0 + (count - 5) * 3.0, 2)
+    elif count <= 20:
+        # Slope: (100.0 - 75.0) / (20 - 10) = 25.0 / 10 = 2.5
+        return round(75.0 + (count - 10) * 2.5, 2)
+    elif count <= 30:
+        # Slope: (150.0 - 100.0) / (30 - 20) = 50.0 / 10 = 5.0
+        return round(100.0 + (count - 20) * 5.0, 2)
+    elif count <= 50:
+        # Slope: (300.0 - 150.0) / (50 - 30) = 150.0 / 20 = 7.5
+        return round(150.0 + (count - 30) * 7.5, 2)
+    else:
+        return 300.0
+
+
+def get_research_httpx_timeout(count: int) -> httpx.Timeout:
+    """
+    Construct explicit HTTPX timeout components for Research generation:
+    - connect: 15.0s (bounded fast-fail if gateway/DNS is down)
+    - read: get_research_timeout(count) (scaled generation runway, up to 300.0s for count=50)
+    - write: 15.0s (bounded)
+    - pool: 10.0s (bounded)
+    """
+    read_timeout = get_research_timeout(count)
+    return httpx.Timeout(
+        connect=15.0,
+        read=read_timeout,
+        write=15.0,
+        pool=10.0
+    )
+
 
 
 def clean_json_text(text: str) -> str:
@@ -290,6 +364,40 @@ def clean_json_text(text: str) -> str:
                 text = text[start_arr:end_arr + 1]
 
     return text.strip()
+
+
+def hydrate_research_product(it: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """
+    Locally hydrate and normalize a research product dictionary to the canonical schema.
+    Backward compatible with:
+    - Compact wire keys: nv, nc, dk, ca, h
+    - Canonical full keys: name_vietnamese, name_chinese, douyin_keywords, content_angle, hook
+    Collision precedence: If both canonical and compact versions exist, canonical field wins.
+    """
+    if not isinstance(it, dict):
+        return None
+
+    def _get_val(canon_key: str, compact_key: str) -> str:
+        # Collision precedence: canonical/full field wins
+        if canon_key in it:
+            val = it[canon_key]
+            return str(val).strip() if val is not None else ""
+        if compact_key in it:
+            val = it[compact_key]
+            return str(val).strip() if val is not None else ""
+        return ""
+
+    name_vi = _get_val("name_vietnamese", "nv")
+    if not name_vi:
+        return None
+
+    return {
+        "name_vietnamese": name_vi,
+        "name_chinese": _get_val("name_chinese", "nc"),
+        "douyin_keywords": _get_val("douyin_keywords", "dk"),
+        "content_angle": _get_val("content_angle", "ca"),
+        "hook": _get_val("hook", "h")
+    }
 
 
 # ==============================================================================
@@ -397,41 +505,49 @@ class AIProvider(ABC):
 Target Niche: {niche}
 Generate a JSON list of exactly {count} trending, problem-solving, or viral products for this niche.
 
-CRITICAL REQUIREMENTS:
-1. "name_vietnamese": Clear, commercial Vietnamese product name.
-2. "name_chinese": Natural commercial Chinese product name used by Chinese suppliers.
-3. "douyin_keywords": Natural Chinese search phrases specifically used on Douyin to discover real product showcase videos. Do NOT make literal word-by-word translations. Use authentic Douyin short-video terms (e.g., '居家好物', '神器', '开箱', '测评', '好物推荐', specific feature descriptors).
-4. "content_angle": Short compelling angle for short video (in Vietnamese).
-5. "hook": Short 1-sentence opening hook to grab attention in first 3 seconds (in Vietnamese).
+CRITICAL REQUIREMENTS FOR EACH PRODUCT:
+- "nv": Clear commercial Vietnamese product name.
+- "nc": Natural commercial Chinese supplier/product name used on 1688 and Chinese wholesale markets.
+- "dk": 3–4 authentic Chinese Douyin search phrases/terms (e.g. '神器', '好物推荐', '开箱', '测评', and key feature keywords).
+- "ca": 1 concise Vietnamese marketing angle, approximately 8–12 words.
+- "h": 1 short punchy Vietnamese opening hook, under 12 words.
 
 OUTPUT FORMAT:
-Return ONLY a valid JSON array of objects. No intro text, no conversational text, no markdown other than standard JSON.
+Return ONLY the raw JSON array. The response must start with [ and end with ], containing exactly {count} product objects.
+Use compact JSON if possible. No markdown fences (do not wrap in ```json), no introduction, no conclusion, and no explanation outside JSON.
+
 Example structure:
 [
   {{
-    "name_vietnamese": "Nồi cơm điện mini đa năng",
-    "name_chinese": "多功能迷你电饭煲",
-    "douyin_keywords": "宿舍迷你电饭煲 独居一人食好物 煮饭神器",
-    "content_angle": "Giải pháp nấu ăn tiện lợi nhanh gọn cho người sống một mình",
-    "hook": "Đừng mua nồi cơm to nữa nếu bạn sống một mình hoặc ở trọ!"
+    "nv": "Nồi cơm điện mini đa năng",
+    "nc": "多功能迷你电饭煲",
+    "dk": "宿舍迷你电饭煲 独居一人食 煮饭神器",
+    "ca": "Giải pháp nấu ăn tiện lợi nhanh gọn cho người sống một mình",
+    "h": "Đừng mua nồi cơm to nữa nếu bạn sống một mình hoặc ở trọ!"
   }}
 ]
 """
         output_budget = get_research_max_output_tokens(count)
+        httpx_timeout = get_research_httpx_timeout(count)
+        scalar_timeout = get_research_timeout(count)
         raw_content = self.generate(
             prompt,
             db=db,
-            timeout=60.0,
+            timeout=httpx_timeout,
             max_retries=0,
             enable_fallback=False,
             options=AIGenerationOptions(
-                timeout=60.0,
+                timeout=scalar_timeout,
                 max_retries=0,
                 enable_fallback=False,
                 allow_cross_provider_fallback=False,
-                max_output_tokens=output_budget
+                max_output_tokens=output_budget,
+                extra_params={"httpx_timeout": httpx_timeout}
             )
         )
+
+        last_meta = self.get_last_execution_metadata() if hasattr(self, "get_last_execution_metadata") else {}
+        is_length_truncation = (isinstance(last_meta, dict) and last_meta.get("finish_reason") == "length")
 
         cleaned = clean_json_text(raw_content)
         try:
@@ -439,26 +555,44 @@ Example structure:
             if not isinstance(items, list):
                 raise ValueError("Response is not a JSON list.")
         except Exception as e:
+            if is_length_truncation:
+                raise AIInvalidResponseError(
+                    f"Phản hồi bị cắt ngang do chạm giới hạn token (finish_reason='length'). "
+                    f"Vui lòng giảm số lượng sản phẩm hoặc tăng ngân sách token.",
+                    provider=self.provider_id
+                )
             raise ValueError(f"Malformed AI response format: {str(e)}")
 
         valid_items = []
         for it in items:
-            if not isinstance(it, dict):
-                continue
-            name_vi = str(it.get("name_vietnamese", "")).strip()
-            if not name_vi:
-                continue
-            valid_items.append({
-                "name_vietnamese": name_vi,
-                "name_chinese": str(it.get("name_chinese", "")).strip(),
-                "douyin_keywords": str(it.get("douyin_keywords", "")).strip(),
-                "content_angle": str(it.get("content_angle", "")).strip(),
-                "hook": str(it.get("hook", "")).strip()
-            })
+            hydrated = hydrate_research_product(it)
+            if hydrated:
+                valid_items.append(hydrated)
 
         if not valid_items:
             raise ValueError("No valid products could be parsed from AI response.")
 
+        if len(valid_items) < count:
+            if is_length_truncation:
+                raise AIInvalidResponseError(
+                    f"Phản hồi bị cắt ngang do chạm giới hạn token (finish_reason='length'): "
+                    f"chỉ nhận được {len(valid_items)}/{count} sản phẩm.",
+                    provider=self.provider_id
+                )
+            raise AIInvalidResponseError(
+                f"AI chỉ trả về {len(valid_items)}/{count} sản phẩm được yêu cầu (thiếu dữ liệu). "
+                f"Yêu cầu dừng lại để đảm bảo tính toàn vẹn dữ liệu.",
+                provider=self.provider_id
+            )
+
+        if len(valid_items) > count:
+            logger.info(
+                f"Research requested {count} products, provider returned {len(valid_items)} valid products; "
+                f"locally trimmed to {count}."
+            )
+            valid_items = valid_items[:count]
+
+        assert len(valid_items) == count
         return valid_items
 
     def generate_timed_script(

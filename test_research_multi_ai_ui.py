@@ -251,7 +251,7 @@ class TestResearchMultiAIUI(unittest.TestCase):
         mock_get_manager.return_value = mock_mgr
 
         resp = self.client.post("/research", data={"niche": "Gia dụng", "product_count": 5, "fresh": "true"})
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 503)
         html = resp.text
 
         self.assertIn("OpenAI đang quá tải", html)

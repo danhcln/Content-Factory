@@ -35,6 +35,8 @@ from app.services.ai.base import (
     AIServiceUnavailableError,
     AITimeoutError,
     AINetworkError,
+    get_research_max_output_tokens,
+    get_research_timeout,
 )
 
 
@@ -138,27 +140,8 @@ FALLBACK_CANDIDATE_PRIORITY: List[str] = [
 ]
 
 
-def get_research_max_output_tokens(count: int) -> int:
-    """
-    Research Output Token Budget:
-    Strictly bounded based on requested product count.
-    Each product object is ~70-90 tokens.
-    - 5 products:   800 tokens   (conservative budget for ~450 token payload)
-    - 10 products: 1,500 tokens (conservative budget for ~900 token payload)
-    - 20 products: 2,800 tokens (conservative budget for ~1,800 token payload)
-    - 30 products: 4,000 tokens (conservative budget for ~2,700 token payload)
-    - 50 products: 6,000 tokens (conservative budget for ~4,500 token payload)
-    """
-    if count <= 5:
-        return 800
-    elif count <= 10:
-        return 1500
-    elif count <= 20:
-        return 2800
-    elif count <= 30:
-        return 4000
-    else:
-        return 6000
+# Canonical token budget and timeout functions are imported from app.services.ai.base
+
 
 
 def discover_available_models(api_key: str, timeout: float = 10.0) -> List[str]:
@@ -956,31 +939,34 @@ class GeminiService:
 Target Niche: {niche}
 Generate a JSON list of exactly {count} trending, problem-solving, or viral products for this niche.
 
-CRITICAL REQUIREMENTS:
-1. "name_vietnamese": Clear, commercial Vietnamese product name.
-2. "name_chinese": Natural commercial Chinese product name used by Chinese suppliers.
-3. "douyin_keywords": Natural Chinese search phrases specifically used on Douyin to discover real product showcase videos. Do NOT make literal word-by-word translations. Use authentic Douyin short-video terms (e.g., '居家好物', '神器', '开箱', '测评', '好物推荐', specific feature descriptors).
-4. "content_angle": Short compelling angle for short video (in Vietnamese).
-5. "hook": Short 1-sentence opening hook to grab attention in first 3 seconds (in Vietnamese).
+CRITICAL REQUIREMENTS FOR EACH PRODUCT:
+1. "name_vietnamese": Clear commercial Vietnamese product name.
+2. "name_chinese": Natural commercial Chinese supplier/product name used on 1688 and Chinese wholesale markets.
+3. "douyin_keywords": 3–5 authentic Chinese Douyin search terms/phrases specifically used by creators to showcase this product (e.g. '神器', '好物推荐', '开箱', '测评', and key feature keywords).
+4. "content_angle": 1 concise Vietnamese sentence (approximately 10–15 words) explaining the unique viral marketing angle.
+5. "hook": 1 short punchy Vietnamese opening sentence (under 15 words) to grab viewer attention in the first 3 seconds.
 
 OUTPUT FORMAT:
-Return ONLY a valid JSON array of objects. No intro text, no conversational text, no markdown other than standard JSON.
+Return ONLY the raw JSON array. The response must start with [ and end with ], containing exactly {count} product objects.
+No markdown fences (do not wrap in ```json), no introduction, no conclusion, and no explanation outside JSON.
+
 Example structure:
 [
   {{
     "name_vietnamese": "Nồi cơm điện mini đa năng",
     "name_chinese": "多功能迷你电饭煲",
-    "douyin_keywords": "宿舍迷你电饭煲 独居一人食好物 煮饭神器",
+    "douyin_keywords": "宿舍迷你电饭煲 独居一人食 煮饭神器",
     "content_angle": "Giải pháp nấu ăn tiện lợi nhanh gọn cho người sống một mình",
     "hook": "Đừng mua nồi cơm to nữa nếu bạn sống một mình hoặc ở trọ!"
   }}
 ]
 """
         output_budget = get_research_max_output_tokens(count)
+        req_timeout = get_research_timeout(count)
         raw_content = self.call_gemini(
             prompt,
             db=db,
-            timeout=60.0,
+            timeout=req_timeout,
             max_retries=0,
             enable_fallback=False,
             max_output_tokens=output_budget

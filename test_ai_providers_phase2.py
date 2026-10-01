@@ -479,13 +479,17 @@ class TestOpenRouterResearchSafety(unittest.TestCase):
     @patch("app.services.ai.providers.openrouter.get_openrouter_model", return_value="anthropic/claude-3.5-sonnet")
     @patch("httpx.Client.post")
     def test_openrouter_research_safety_payload_and_single_request(self, mock_post, mock_m, mock_k):
+        mock_5_items = json.dumps([
+            {"name_vietnamese": f"SP {i}", "name_chinese": f"CP {i}", "douyin_keywords": "DK", "content_angle": "CA", "hook": "H"}
+            for i in range(1, 6)
+        ])
         mock_post.return_value = _mock_resp(200, {
-            "choices": [{"message": {"content": SAMPLE_PRODUCTS_JSON}}],
+            "choices": [{"message": {"content": mock_5_items}}],
             "usage": {"prompt_tokens": 50, "completion_tokens": 120, "total_tokens": 170}
         })
 
         prods = self.provider.generate_products(niche="Đồ chơi", count=5, db=self.mock_db)
-        self.assertEqual(len(prods), 1)
+        self.assertEqual(len(prods), 5)
         self.assertEqual(mock_post.call_count, 1, "Must make exactly 1 outbound HTTP call")
 
         # Inspect request payload
@@ -602,7 +606,7 @@ class TestResearchOneRequestMatrix(unittest.TestCase):
         p = OpenAIProvider()
         # Normal
         mock_post.return_value = _mock_resp(200, {"choices": [{"message": {"content": SAMPLE_PRODUCTS_JSON}}]})
-        prods = p.generate_products("Gia dụng", count=2, db=self.mock_db)
+        prods = p.generate_products("Gia dụng", count=1, db=self.mock_db)
         self.assertEqual(len(prods), 1)
         self.assertEqual(mock_post.call_count, 1)
 
@@ -642,7 +646,7 @@ class TestResearchOneRequestMatrix(unittest.TestCase):
         p = AnthropicProvider()
         # Normal
         mock_post.return_value = _mock_resp(200, {"content": [{"type": "text", "text": SAMPLE_PRODUCTS_JSON}]})
-        prods = p.generate_products("Gia dụng", count=2, db=self.mock_db)
+        prods = p.generate_products("Gia dụng", count=1, db=self.mock_db)
         self.assertEqual(len(prods), 1)
         self.assertEqual(mock_post.call_count, 1)
 
@@ -682,7 +686,7 @@ class TestResearchOneRequestMatrix(unittest.TestCase):
         p = GroqProvider()
         # Normal
         mock_post.return_value = _mock_resp(200, {"choices": [{"message": {"content": SAMPLE_PRODUCTS_JSON}}]})
-        prods = p.generate_products("Gia dụng", count=2, db=self.mock_db)
+        prods = p.generate_products("Gia dụng", count=1, db=self.mock_db)
         self.assertEqual(len(prods), 1)
         self.assertEqual(mock_post.call_count, 1)
 
@@ -722,7 +726,7 @@ class TestResearchOneRequestMatrix(unittest.TestCase):
         p = OpenRouterProvider()
         # Normal
         mock_post.return_value = _mock_resp(200, {"choices": [{"message": {"content": SAMPLE_PRODUCTS_JSON}}]})
-        prods = p.generate_products("Gia dụng", count=2, db=self.mock_db)
+        prods = p.generate_products("Gia dụng", count=1, db=self.mock_db)
         self.assertEqual(len(prods), 1)
         self.assertEqual(mock_post.call_count, 1)
 

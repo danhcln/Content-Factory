@@ -9,7 +9,8 @@ import json
 import time
 import hashlib
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
+import httpx
 
 from app.services.ai.base import (
     AIProviderError,
@@ -129,20 +130,85 @@ class ModelCatalogCache:
 global_model_cache = ModelCatalogCache(ttl_seconds=3600.0)
 
 
-# ==============================================================================
-# ERROR CLASSIFICATION
-# ==============================================================================
+SAFE_DIAGNOSTIC_HEADERS = {
+    "retry-after",
+    "x-request-id",
+    "request-id",
+    "cf-ray",
+    "traceparent",
+    "x-trace-id",
+}
+
+
+def parse_safe_retry_after(raw_val: Optional[Any]) -> Optional[int]:
+    """
+    Parse Retry-After header safely.
+    Returns positive integer seconds (capped at 3600), or None if missing/invalid/negative.
+    Never invents or fabricates a wait time.
+    """
+    if raw_val is None:
+        return None
+    try:
+        val = int(str(raw_val).strip())
+        if 0 < val <= 3600:
+            return val
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def sanitize_request_id(raw_val: Optional[Any]) -> Optional[str]:
+    """
+    Normalize and sanitize trace / request ID.
+    Allows alphanumeric characters, hyphens, underscores, dots, and colons.
+    Caps length to 64 chars. Returns None if invalid or empty.
+    """
+    if raw_val is None:
+        return None
+    raw_str = str(raw_val).strip()
+    cleaned = "".join(c for c in raw_str if c.isalnum() or c in "-_.:")
+    return cleaned[:64] if cleaned else None
+ 
+ 
+def build_httpx_timeout(
+    timeout_val: Any,
+    connect_timeout: float = 15.0,
+    write_timeout: float = 15.0,
+    pool_timeout: float = 10.0
+) -> httpx.Timeout:
+    """
+    Construct explicit httpx.Timeout ensuring bounded connect, write, and pool timeouts
+    while honoring requested read timeout.
+    """
+    if isinstance(timeout_val, httpx.Timeout):
+        return timeout_val
+    if timeout_val is None:
+        return httpx.Timeout(60.0, connect=connect_timeout, write=write_timeout, pool=pool_timeout)
+    try:
+        t_float = float(timeout_val)
+        return httpx.Timeout(
+            connect=min(connect_timeout, t_float),
+            read=t_float,
+            write=min(write_timeout, t_float),
+            pool=min(pool_timeout, t_float)
+        )
+    except (ValueError, TypeError):
+        return httpx.Timeout(60.0, connect=connect_timeout, write=write_timeout, pool=pool_timeout)
+
 
 def classify_http_error(
     status_code: int,
     response_text: str,
     provider: str,
     model: str,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    response_headers: Optional[Dict[str, Any]] = None,
+    duration_seconds: Optional[float] = None
 ) -> AIProviderError:
     """
     Parse and normalize HTTP error responses into domain AIProviderError exceptions.
     Preserves sanitized upstream messages while ensuring zero secret exposure.
+    Captures safe diagnostic metadata (Retry-After, request ID, duration) for 5xx errors.
     """
     upstream_msg = ""
     err_type_str = ""
@@ -242,12 +308,29 @@ def classify_http_error(
 
     # 500 / 502 / 503 / 504 Service Unavailable / Server Overload
     if status_code in (500, 502, 503, 504) or status_code >= 500:
+        retry_after: Optional[int] = None
+        request_id: Optional[str] = None
+        if response_headers and isinstance(response_headers, dict):
+            lower_headers = {str(k).lower(): v for k, v in response_headers.items() if str(k).lower() in SAFE_DIAGNOSTIC_HEADERS}
+            retry_after = parse_safe_retry_after(lower_headers.get("retry-after"))
+            raw_req_id = (
+                lower_headers.get("x-request-id")
+                or lower_headers.get("request-id")
+                or lower_headers.get("cf-ray")
+                or lower_headers.get("x-trace-id")
+                or lower_headers.get("traceparent")
+            )
+            request_id = sanitize_request_id(raw_req_id)
+
         return AIServiceUnavailableError(
             f"{provider.capitalize()} API {status_code} Service Unavailable: Upstream server is overloaded. {clean_upstream}",
             status_code=status_code,
             provider=provider,
             model=model,
-            upstream_message=clean_upstream
+            upstream_message=clean_upstream,
+            retry_after=retry_after,
+            request_id=request_id,
+            duration_seconds=duration_seconds
         )
 
     # Fallback generic provider error

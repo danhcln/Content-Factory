@@ -4,6 +4,47 @@
 {% block page_title %}Nghiên Cứu Sản Phẩm (Product Research){% endblock %}
 
 {% block content %}
+<style>
+.btn-preset {
+    min-width: 44px;
+    font-weight: 600;
+    transition: all 0.15s ease-in-out;
+}
+.btn-preset.active {
+    background-color: #0dcaf0 !important;
+    color: #000 !important;
+    border-color: #0dcaf0 !important;
+    box-shadow: 0 0 8px rgba(13, 202, 240, 0.4);
+}
+.category-chip {
+    transition: all 0.15s ease-in-out;
+    border-radius: 12px;
+    white-space: nowrap;
+}
+.category-chip.active {
+    background-color: #0dcaf0 !important;
+    color: #000 !important;
+    border-color: #0dcaf0 !important;
+    font-weight: 600;
+}
+.niche-chip {
+    transition: all 0.15s ease-in-out;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    padding: 3px 10px;
+    white-space: nowrap;
+}
+.niche-chip:hover {
+    border-color: #0dcaf0;
+    color: #0dcaf0;
+}
+.niche-chip.active {
+    background-color: #0dcaf0 !important;
+    color: #000 !important;
+    border-color: #0dcaf0 !important;
+    font-weight: 600;
+}
+</style>
 <div class="row">
     <div class="col-lg-6">
         <div class="card mb-4">
@@ -76,6 +117,17 @@
                             <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Chi tiết kỹ thuật trong <code>logs/app.log</code></div>
                             {% elif error_type == 'BUSY' %}
                             <div class="small text-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Research đã dừng và không tự động thử lại để tiết kiệm hạn mức. Chi tiết trong <code>logs/app.log</code></div>
+                            <div class="mt-2 pt-2 border-top border-secondary-subtle d-flex align-items-center gap-2 flex-wrap">
+                                <button type="button" class="btn btn-sm btn-outline-warning fw-semibold" id="btnRetryFocus">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>Thử Lại (Kiểm tra lại thông số)
+                                </button>
+                                {% if retry_after %}
+                                <span class="badge text-bg-warning-subtle text-warning border border-warning-subtle py-1 px-2" style="font-size: 0.78rem;" id="retryAfterBadge">
+                                    <i class="bi bi-clock me-1"></i>Gợi ý chờ: ~{{ retry_after }}s
+                                </span>
+                                {% endif %}
+                                <span class="small text-muted" style="font-size: 0.8rem;">Nhấn để xem lại biểu mẫu và điều chỉnh số lượng nếu muốn.</span>
+                            </div>
                             {% endif %}
                         </div>
                     </div>
@@ -87,19 +139,114 @@
                     <div class="mb-3">
                         <label for="niche" class="form-label fw-bold">Ngành hàng / Niche:</label>
                         <input type="text" class="form-control" id="niche" name="niche" value="{{ niche_val or '' }}" placeholder="Ví dụ: Đồ gia dụng thông minh, Đồ chơi công nghệ..." required>
+
+                        <!-- Local Niche Discovery Section (0 AI calls, 0 network calls) -->
+                        <div class="card bg-dark border border-secondary-subtle mt-2 mb-1" id="nicheDiscoveryCard">
+                            <div class="card-body p-2 p-md-3">
+                                <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                                    <span class="fw-semibold text-info small d-flex align-items-center">
+                                        <i class="bi bi-compass me-1"></i>Gợi ý ngách nghiên cứu:
+                                    </span>
+                                    <div class="d-flex align-items-center gap-1">
+                                        <button type="button" class="btn btn-xs btn-outline-secondary text-secondary-emphasis" id="btnRandomNiches" title="Chọn ngẫu nhiên ngách từ danh mục cục bộ" style="font-size: 0.75rem; padding: 2px 8px;">
+                                            <i class="bi bi-shuffle me-1 text-info"></i>🎲 Gợi ý ngách khác
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Optional Local In-Memory Filter -->
+                                <div class="mb-2">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-dark border-secondary-subtle text-secondary py-0"><i class="bi bi-search" style="font-size: 0.75rem;"></i></span>
+                                        <input type="text" class="form-control form-control-sm bg-dark border-secondary-subtle text-light py-1" id="nicheSearchFilter" placeholder="Tìm nhanh ngách hoặc ngành hàng (ví dụ: bếp, mèo, xe, decor...)" autocomplete="off" style="font-size: 0.8rem;">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary d-none py-0" id="btnClearNicheSearch" title="Xóa tìm kiếm">&times;</button>
+                                    </div>
+                                </div>
+
+                                <!-- Broad Category Chips -->
+                                <div class="small text-muted mb-1" style="font-size: 0.75rem;">
+                                    Danh mục phổ biến:
+                                </div>
+                                <div class="d-flex align-items-center flex-wrap gap-1 mb-2" id="broadCategoryChips">
+                                    {% if broad_categories %}
+                                        {% for cat in broad_categories %}
+                                        <button type="button" 
+                                                class="btn btn-xs btn-outline-secondary category-chip {% if loop.index > 8 %}extra-category d-none{% endif %}" 
+                                                data-category="{{ cat }}"
+                                                style="font-size: 0.78rem; padding: 2px 8px;">
+                                            {{ cat }}
+                                        </button>
+                                        {% endfor %}
+                                        {% if broad_categories|length > 8 %}
+                                        <button type="button" class="btn btn-xs btn-link text-info text-decoration-none p-0 ms-1" id="btnToggleAllCategories" style="font-size: 0.78rem;">
+                                            + Xem tất cả ({{ broad_categories|length }})
+                                        </button>
+                                        {% endif %}
+                                    {% endif %}
+                                </div>
+
+                                <!-- Specific Niche Suggestions Container (Revealed upon category selection) -->
+                                <div id="specificNichesContainer" class="p-2 rounded bg-black bg-opacity-25 border border-secondary-subtle mt-2 d-none">
+                                    <div class="d-flex align-items-center justify-content-between mb-2">
+                                        <span class="small fw-semibold text-light d-flex align-items-center" id="specificNichesTitle">
+                                            <i class="bi bi-tag-fill me-1 text-info"></i>
+                                            <span id="specificCategoryName">Gợi ý cụ thể</span>
+                                        </span>
+                                        <span class="badge bg-secondary-subtle text-secondary" style="font-size: 0.7rem;">Click để điền</span>
+                                    </div>
+                                    <div class="d-flex align-items-center flex-wrap gap-1" id="specificNichesList">
+                                        <!-- Populated dynamically via local JavaScript -->
+                                    </div>
+                                </div>
+
+                                <!-- Rotating Random Discovery Suggestions Container -->
+                                <div id="randomNichesContainer" class="p-2 rounded bg-black bg-opacity-25 border border-secondary-subtle mt-2">
+                                    <div class="d-flex align-items-center justify-content-between mb-1">
+                                        <span class="small fw-semibold text-light" style="font-size: 0.78rem;">
+                                            <i class="bi bi-stars me-1 text-warning"></i>Ngách tiềm năng nổi bật:
+                                        </span>
+                                        <button type="button" class="btn btn-link text-info p-0 text-decoration-none" id="btnRefreshRandom" style="font-size: 0.75rem;">
+                                            <i class="bi bi-arrow-repeat me-1"></i>Đổi gợi ý
+                                        </button>
+                                    </div>
+                                    <div class="d-flex align-items-center flex-wrap gap-1" id="randomNichesList">
+                                        <!-- Populated dynamically via local JavaScript from local catalog -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Safe JSON Data Block: Uses Jinja2's tojson escaping to guarantee breakout/XSS safety -->
+                        <script id="nicheCatalogData" type="application/json">{{ niche_catalog | tojson }}</script>
                     </div>
 
                     <div class="mb-3">
-                        <label for="productCount" class="form-label fw-bold">Số lượng sản phẩm:</label>
-                        <select class="form-select" id="productCount" name="product_count">
-                            <option value="5" {% if product_count_val == 5 %}selected{% endif %}>5 sản phẩm</option>
-                            <option value="10" {% if product_count_val == 10 or not product_count_val %}selected{% endif %}>10 sản phẩm</option>
-                            <option value="20" {% if product_count_val == 20 %}selected{% endif %}>20 sản phẩm</option>
-                            <option value="30" {% if product_count_val == 30 %}selected{% endif %}>30 sản phẩm</option>
-                            <option value="50" {% if product_count_val == 50 %}selected{% endif %}>50 sản phẩm</option>
-                        </select>
-                        <div class="form-text text-secondary small mt-1">
-                            <i class="bi bi-info-circle me-1"></i>Nhiều sản phẩm hơn (20, 30, 50) sẽ sử dụng nhiều AI token hơn.
+                        <label for="productCount" class="form-label fw-bold">Số lượng sản phẩm (1–50):</label>
+                        <div class="input-group mb-2">
+                            <input type="number" 
+                                   class="form-control" 
+                                   id="productCount" 
+                                   name="product_count" 
+                                   min="1" 
+                                   max="50" 
+                                   step="1" 
+                                   value="{{ product_count_val or 10 }}" 
+                                   placeholder="10"
+                                   required>
+                            <span class="input-group-text text-secondary">sản phẩm</span>
+                        </div>
+                        <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                            <span class="text-secondary small me-1">Gợi ý nhanh:</span>
+                            {% for preset in [5, 10, 20, 30, 50] %}
+                            <button type="button" 
+                                    class="btn btn-sm btn-outline-info btn-preset {% if product_count_val|string == preset|string %}active{% endif %}" 
+                                    data-count="{{ preset }}"
+                                    id="presetBtn{{ preset }}">
+                                {{ preset }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <div class="form-text text-secondary small" id="productCountAdvisory">
+                            <i class="bi bi-info-circle me-1"></i>Yêu cầu nhiều sản phẩm hơn có thể cần nhiều token và thời gian xử lý hơn.
                         </div>
                     </div>
 
@@ -233,6 +380,271 @@
 
     let isSubmitting = false;
 
+    // Preset buttons and numeric input logic
+    const countInput = document.getElementById('productCount');
+    const presetButtons = document.querySelectorAll('.btn-preset');
+    const advisoryEl = document.getElementById('productCountAdvisory');
+
+    function updateAdvisory(count) {
+        if (!advisoryEl) return;
+        const num = parseInt(count, 10);
+        if (!isNaN(num) && num >= 30) {
+            advisoryEl.innerHTML = '<i class="bi bi-info-circle me-1"></i>Yêu cầu nhiều sản phẩm hơn (30–50) có thể cần nhiều token và thời gian xử lý hơn. Vui lòng kiên nhẫn trong khi AI xử lý.';
+        } else {
+            advisoryEl.innerHTML = '<i class="bi bi-info-circle me-1"></i>Yêu cầu nhiều sản phẩm hơn có thể cần nhiều token và thời gian xử lý hơn.';
+        }
+    }
+
+    function updatePresetHighlight(val) {
+        const raw = String(val || '').trim();
+        const numVal = parseInt(raw, 10);
+        const isExactInteger = !raw.includes('.') && !raw.includes(',') && !isNaN(numVal) && String(numVal) === raw;
+        presetButtons.forEach(btn => {
+            const btnVal = parseInt(btn.getAttribute('data-count'), 10);
+            if (isExactInteger && btnVal === numVal) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        updateAdvisory(val);
+    }
+
+    if (presetButtons.length > 0 && countInput) {
+        presetButtons.forEach(btn => {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const targetVal = this.getAttribute('data-count');
+                countInput.value = targetVal;
+                updatePresetHighlight(targetVal);
+            });
+        });
+
+        countInput.addEventListener('input', function() {
+            updatePresetHighlight(this.value);
+        });
+
+        // Initialize active state on page load
+        updatePresetHighlight(countInput.value);
+    }
+
+    // -------------------------------------------------------------------------
+    // Safe Local Niche Discovery (0 AI calls, 0 network calls)
+    // -------------------------------------------------------------------------
+    const catalogDataEl = document.getElementById('nicheCatalogData');
+    let localCatalog = {};
+    if (catalogDataEl && catalogDataEl.textContent) {
+        try {
+            localCatalog = JSON.parse(catalogDataEl.textContent);
+        } catch (err) {
+            console.error('Failed to parse local niche catalog:', err);
+        }
+    }
+
+    const nicheInput = document.getElementById('niche');
+    const specificContainer = document.getElementById('specificNichesContainer');
+    const specificList = document.getElementById('specificNichesList');
+    const specificCatName = document.getElementById('specificCategoryName');
+    const randomList = document.getElementById('randomNichesList');
+    const btnRandom = document.getElementById('btnRandomNiches');
+    const btnRefreshRandom = document.getElementById('btnRefreshRandom');
+    const btnToggleCategories = document.getElementById('btnToggleAllCategories');
+    const searchFilter = document.getElementById('nicheSearchFilter');
+    const btnClearSearch = document.getElementById('btnClearNicheSearch');
+    const categoryChips = document.querySelectorAll('.category-chip');
+
+    // Helper: flatten all niches into an array
+    function getAllNiches() {
+        const all = [];
+        for (const cat in localCatalog) {
+            if (Array.isArray(localCatalog[cat])) {
+                all.push(...localCatalog[cat]);
+            }
+        }
+        return all;
+    }
+
+    // Helper: render chips into a container
+    function renderNicheChips(container, niches, activeText) {
+        if (!container) return;
+        container.innerHTML = '';
+        niches.forEach(niche => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-xs btn-outline-info niche-chip' + (activeText && activeText.trim().toLowerCase() === niche.trim().toLowerCase() ? ' active' : '');
+            btn.textContent = niche;
+            btn.setAttribute('data-niche', niche);
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (nicheInput) {
+                    nicheInput.value = niche;
+                    nicheInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+                document.querySelectorAll('.niche-chip').forEach(c => {
+                    if (c.getAttribute('data-niche') === niche) {
+                        c.classList.add('active');
+                    } else {
+                        c.classList.remove('active');
+                    }
+                });
+            });
+            container.appendChild(btn);
+        });
+    }
+
+    // Category click handler
+    categoryChips.forEach(chip => {
+        chip.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const cat = this.getAttribute('data-category');
+            categoryChips.forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+
+            const niches = localCatalog[cat] || [];
+            if (specificCatName) specificCatName.textContent = cat;
+            if (specificList) renderNicheChips(specificList, niches, nicheInput ? nicheInput.value : '');
+            if (specificContainer) specificContainer.classList.remove('d-none');
+        });
+    });
+
+    // Toggle all categories (+ Xem tất cả / - Thu gọn)
+    if (btnToggleCategories) {
+        btnToggleCategories.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const extras = document.querySelectorAll('.extra-category');
+            const isHidden = extras.length > 0 && extras[0].classList.contains('d-none');
+            extras.forEach(el => {
+                if (isHidden) {
+                    el.classList.remove('d-none');
+                } else {
+                    el.classList.add('d-none');
+                }
+            });
+            btnToggleCategories.textContent = isHidden ? '- Thu gọn' : '+ Xem tất cả (' + categoryChips.length + ')';
+        });
+    }
+
+    // Random sample generator (6-8 niches)
+    let lastRandomSample = [];
+    function refreshRandomNiches() {
+        const all = getAllNiches();
+        if (all.length === 0) return;
+        const pool = all.filter(n => !lastRandomSample.includes(n));
+        const samplePool = pool.length >= 8 ? pool : all;
+        const shuffled = [...samplePool].sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 8);
+        lastRandomSample = selected;
+        if (randomList) renderNicheChips(randomList, selected, nicheInput ? nicheInput.value : '');
+    }
+
+    if (btnRandom) {
+        btnRandom.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            refreshRandomNiches();
+            const randCard = document.getElementById('randomNichesContainer');
+            if (randCard) randCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+    }
+    if (btnRefreshRandom) {
+        btnRefreshRandom.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            refreshRandomNiches();
+        });
+    }
+
+    // In-memory quick filter (Optional lightweight local filter)
+    if (searchFilter) {
+        searchFilter.addEventListener('input', function() {
+            const q = this.value.trim().toLowerCase();
+            if (btnClearSearch) {
+                if (q) btnClearSearch.classList.remove('d-none');
+                else btnClearSearch.classList.add('d-none');
+            }
+            if (!q) {
+                categoryChips.forEach((c, idx) => {
+                    if (idx < 8) c.classList.remove('d-none');
+                    else c.classList.add('d-none');
+                });
+                if (btnToggleCategories) {
+                    btnToggleCategories.classList.remove('d-none');
+                    btnToggleCategories.textContent = '+ Xem tất cả (' + categoryChips.length + ')';
+                }
+                return;
+            }
+
+            if (btnToggleCategories) btnToggleCategories.classList.add('d-none');
+            const matchingNiches = [];
+            categoryChips.forEach(c => {
+                const catName = (c.getAttribute('data-category') || '').toLowerCase();
+                const catNiches = localCatalog[c.getAttribute('data-category')] || [];
+                const catMatches = catName.includes(q);
+                const hasNicheMatch = catNiches.some(n => n.toLowerCase().includes(q));
+
+                if (catMatches || hasNicheMatch) {
+                    c.classList.remove('d-none');
+                } else {
+                    c.classList.add('d-none');
+                }
+
+                catNiches.forEach(n => {
+                    if (n.toLowerCase().includes(q) && !matchingNiches.includes(n)) {
+                        matchingNiches.push(n);
+                    }
+                });
+            });
+
+            if (matchingNiches.length > 0) {
+                if (specificCatName) specificCatName.textContent = 'Kết quả tìm kiếm: "' + this.value.trim() + '"';
+                if (specificList) renderNicheChips(specificList, matchingNiches.slice(0, 16), nicheInput ? nicheInput.value : '');
+                if (specificContainer) specificContainer.classList.remove('d-none');
+            }
+        });
+    }
+
+    if (btnClearSearch && searchFilter) {
+        btnClearSearch.addEventListener('click', function(e) {
+            e.preventDefault();
+            searchFilter.value = '';
+            searchFilter.dispatchEvent(new Event('input'));
+            btnClearSearch.classList.add('d-none');
+            searchFilter.focus();
+        });
+    }
+
+    // Initial random suggestions population on page load
+    refreshRandomNiches();
+
+    // Retry focus button (from overload error alert)
+    const btnRetryFocus = document.getElementById('btnRetryFocus');
+    if (btnRetryFocus && nicheInput) {
+        btnRetryFocus.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            nicheInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            nicheInput.focus();
+        });
+    }
+
+    // Keep active niche chip updated when manual editing happens
+    if (nicheInput) {
+        nicheInput.addEventListener('input', function() {
+            const currentVal = this.value.trim().toLowerCase();
+            document.querySelectorAll('.niche-chip').forEach(c => {
+                if (c.getAttribute('data-niche') && c.getAttribute('data-niche').toLowerCase() === currentVal) {
+                    c.classList.add('active');
+                } else {
+                    c.classList.remove('active');
+                }
+            });
+        });
+    }
+
     if (btn) {
         btn.addEventListener('click', function(e) {
             if (isSubmitting) {
@@ -245,6 +657,18 @@
 
     if (form && btn) {
         form.addEventListener('submit', function(e) {
+            // Client-side validation: reject non-numeric, decimal, <1, >50
+            const countVal = countInput ? countInput.value.trim() : '';
+            const numCount = Number(countVal);
+            const isInvalid = !countVal || countVal.includes('.') || countVal.includes(',') || isNaN(numCount) || !Number.isInteger(numCount) || numCount < 1 || numCount > 50;
+            if (isInvalid) {
+                e.preventDefault();
+                e.stopPropagation();
+                alert('Vui lòng nhập số lượng sản phẩm là số nguyên hợp lệ từ 1 đến 50.');
+                if (countInput) countInput.focus();
+                return false;
+            }
+
             if (isSubmitting) {
                 e.preventDefault();
                 e.stopPropagation();
